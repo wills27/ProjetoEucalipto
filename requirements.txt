@@ -1,0 +1,10 @@
+cellpose
+matplotlib
+numpy
+pandas
+Pillow
+PyInstaller
+PyQt6
+scikit-image
+tifffile
+torch

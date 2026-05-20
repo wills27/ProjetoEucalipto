@@ -1,0 +1,13 @@
+{
+  "active_project": "eucalipto",
+  "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
+  "active_model": "cpsam_vasos_eucalipto_v1",
+  "padding_pixels": 64,
+  "diameter": 45.0,
+  "cellprob_threshold": 0.0,
+  "flow_threshold": 0.4,
+  "test_images_dir": "data/test/images",
+  "test_masks_dir": "data/test/masks",
+  "predictions_dir": "outputs\\cpsam_vasos_eucalipto_v1\\predictions",
+  "overlays_dir": "outputs\\cpsam_vasos_eucalipto_v1\\overlays"
+}
