@@ -32,11 +32,17 @@ def pad_image(image, padding):
     raise ValueError(f"Formato de imagem nao suportado: {image.shape}")
 
 
-def crop_mask(mask, padding):
+def crop_mask(mask, padding, original_shape=None):
     if padding <= 0:
-        return mask
+        if original_shape is None:
+            return mask
+        height, width = original_shape[:2]
+        return mask[:height, :width]
 
-    return mask[padding:-padding, padding:-padding]
+    if original_shape is None:
+        return mask[padding:-padding, padding:-padding]
+    height, width = original_shape[:2]
+    return mask[padding : padding + height, padding : padding + width]
 
 
 def main():
@@ -73,7 +79,7 @@ def main():
             flow_threshold=args.flow_threshold
         )
         padded_masks = eval_result[0].astype("uint16")
-        masks = crop_mask(padded_masks, args.padding)
+        masks = crop_mask(padded_masks, args.padding, img.shape)
 
         output_path = output_dir / f"{img_path.stem}_pred_masks.tif"
         tiff.imwrite(output_path, masks.astype("uint16"))

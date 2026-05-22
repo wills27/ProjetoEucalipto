@@ -3,10 +3,17 @@ import argparse
 import json
 import random
 import shutil
+import sys
 
 import numpy as np
 import tifffile as tiff
 from PIL import Image
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from services.annotation import validate_mask_content
 
 
 IMAGE_EXTENSIONS = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
@@ -129,15 +136,21 @@ def prepare_pair(image_path):
     if seg_path.exists():
         mask = load_seg_mask(seg_path)
     elif tif_mask_path.exists():
-        mask = np.array(Image.open(tif_mask_path)).astype(np.uint16)
+        with Image.open(tif_mask_path) as image:
+            mask = np.array(image).astype(np.uint16)
     elif tiff_mask_path.exists():
-        mask = np.array(Image.open(tiff_mask_path)).astype(np.uint16)
+        with Image.open(tiff_mask_path) as image:
+            mask = np.array(image).astype(np.uint16)
     else:
-        print(f"[IGNORADO] Sem mascara correspondente: {image_path.name}")
-        return None
+        print(f"[TESTE] Sem mascara correspondente: {image_path.name}")
+        return image_path, None
 
-    if mask.max() == 0:
-        print(f"[IGNORADO] Mascara vazia: {image_path.name}")
+    validation = validate_mask_content(mask)
+    if not validation["valid"]:
+        print(
+            f"[IGNORADO] {validation['status']}: {image_path.name} "
+            f"({validation['pixel_count']} pixels, {validation['object_count']} objetos)"
+        )
         return None
 
     return image_path, mask
@@ -179,6 +192,9 @@ def split_dataset_from_plan(pairs, plan):
         if not entry.get("include", True):
             continue
         group = entry.get("group", "auto")
+        if mask is None:
+            selected["test"].append((image_path, mask))
+            continue
         if group in selected:
             selected[group].append((image_path, mask))
         else:
@@ -197,12 +213,13 @@ def save_pair_to_folder(image_path, mask, target_dir):
     image_output_name = get_output_image_name(image_path)
     image_output_path = target_dir / "images" / image_output_name
 
+    copy_or_convert_image(image_path, image_output_path)
+    if mask is None:
+        return image_output_path, None
+
     mask_output_name = f"{Path(image_output_name).stem}_masks.tif"
     mask_output_path = target_dir / "masks" / mask_output_name
-
-    copy_or_convert_image(image_path, image_output_path)
     tiff.imwrite(mask_output_path, mask)
-
     return image_output_path, mask_output_path
 
 
@@ -230,6 +247,7 @@ def main():
         return
 
     valid_pairs = []
+    test_only_pairs = []
 
     print("Procurando pares imagem + _seg.npy...")
 
@@ -240,25 +258,34 @@ def main():
             continue
 
         image_path, mask = result
+        if mask is None:
+            test_only_pairs.append((image_path, mask))
+            continue
+
         valid_pairs.append((image_path, mask))
 
         if SAVE_CONVERTED_COPY:
             save_converted_pair(image_path, mask, paths["converted"])
 
-    if not valid_pairs:
-        print("Nenhum par valido encontrado.")
+    if not valid_pairs and not test_only_pairs:
+        print("Nenhuma imagem valida encontrada.")
         return
 
     if plan:
         train_pairs, val_pairs, test_pairs = split_dataset_from_plan(valid_pairs, plan)
+        _ignored_train, _ignored_val, planned_test_only_pairs = split_dataset_from_plan(test_only_pairs, plan)
+        test_pairs.extend(planned_test_only_pairs)
     else:
         train_pairs, val_pairs, test_pairs = split_dataset(valid_pairs)
+        test_pairs.extend(test_only_pairs)
 
     print()
     print("Divisao do dataset:")
     print(f"Treino: {len(train_pairs)}")
     print(f"Validacao: {len(val_pairs)}")
     print(f"Teste: {len(test_pairs)}")
+    if test_only_pairs:
+        print(f"Teste sem mascara: {len(test_only_pairs)}")
     print()
 
     clear_split_dirs(paths)

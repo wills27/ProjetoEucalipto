@@ -16,6 +16,14 @@ DEFAULT_CONFIG = {
     "test_masks_dir": "data/test/masks",
     "predictions_dir": "outputs/cpsam_vasos_eucalipto_v1/predictions",
     "overlays_dir": "outputs/cpsam_vasos_eucalipto_v1/overlays",
+    "calibration": {
+        "unit": "um",
+        "unit_per_pixel": 0.0,
+        "pixel_distance": 0.0,
+        "real_distance": 0.0,
+        "source": "",
+        "source_image": "",
+    },
 }
 
 
@@ -30,6 +38,9 @@ def load_config():
 
     merged = DEFAULT_CONFIG.copy()
     merged.update(config)
+    calibration = DEFAULT_CONFIG["calibration"].copy()
+    calibration.update(config.get("calibration", {}))
+    merged["calibration"] = calibration
     return merged
 
 

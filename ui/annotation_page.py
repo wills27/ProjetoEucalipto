@@ -1,4 +1,5 @@
 import shutil
+import traceback
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -24,11 +26,10 @@ from services.annotation import (
     contour_area,
     draw_contour_preview,
     draw_stroke_preview,
-    load_mask,
-    next_label_value,
     overlay_mask,
-    save_mask,
+    validate_mask_file,
 )
+from ui.mask_edit_target import DatasetMaskTarget
 from services.paths import conversion_excluded_dir, conversion_input_dir
 from ui.annotation_editor import AnnotationEditorDialog
 from ui.widgets import AnnotationPreviewLabel
@@ -53,6 +54,8 @@ class AnnotationPage(QWidget):
         self.stroke_points = []
         self.editor = None
         self.current_stroke_label = None
+        self.is_busy = False
+        self.busy_controls = []
         self._init_controls()
         if build_ui:
             self.build()
@@ -81,7 +84,6 @@ class AnnotationPage(QWidget):
         self.brush_size.setValue(16)
 
         self.contour_button = None
-        self.brush_button = None
         self.eraser_button = None
 
     def build(self):
@@ -96,7 +98,8 @@ class AnnotationPage(QWidget):
         self.image_list.currentItemChanged.connect(self.show_item)
         left_layout.addWidget(self.summary)
         left_layout.addWidget(self.image_list, 1)
-        self.window.add_button(left_layout, "Atualizar", self.refresh_images)
+        refresh_button = self.window.add_button(left_layout, "Atualizar", self.refresh_images)
+        self.busy_controls.append(refresh_button)
         layout.addWidget(left, 0)
 
         center = self.window.panel("Pre-visualizacao")
@@ -141,46 +144,53 @@ class AnnotationPage(QWidget):
         params_layout.addWidget(self.flow, 3, 1)
         right_layout.addWidget(params_box)
 
-        self.window.add_button(right_layout, "Gerar/refazer mascara", self.window.run_annotation_mask_prediction, primary=True)
-        self.window.add_button(right_layout, "Editar em janela maior", self.open_editor)
+        predict_button = self.window.add_button(
+            right_layout,
+            "Gerar mascara automatica",
+            self.window.run_annotation_mask_prediction,
+            primary=True,
+        )
+        edit_button = self.window.add_button(right_layout, "Editar em janela maior", self.open_editor)
+        self.busy_controls.extend([predict_button, edit_button])
 
         tools_box = self.window.panel("Edicao manual")
         tools_layout = QGridLayout(tools_box)
         self.contour_button = QPushButton("Contorno")
         self.contour_button.setObjectName("mode")
         self.contour_button.setProperty("active", True)
+        self.contour_button.setVisible(False)
         self.contour_button.clicked.connect(lambda: self.set_tool("contour"))
-        self.brush_button = QPushButton("Pincel")
-        self.brush_button.setObjectName("mode")
-        self.brush_button.clicked.connect(lambda: self.set_tool("brush"))
         self.eraser_button = QPushButton("Borracha")
         self.eraser_button.setObjectName("mode")
+        self.eraser_button.setVisible(False)
         self.eraser_button.clicked.connect(lambda: self.set_tool("eraser"))
-        tools_layout.addWidget(self.contour_button, 0, 0)
-        tools_layout.addWidget(self.brush_button, 0, 1)
-        tools_layout.addWidget(self.eraser_button, 1, 0)
-        tools_layout.addWidget(QLabel("Tamanho"), 2, 0)
-        tools_layout.addWidget(self.brush_size, 2, 1)
 
         save_mask_button = QPushButton("Salvar mascara")
         save_mask_button.setObjectName("primary")
         save_mask_button.clicked.connect(self.save_mask)
-        tools_layout.addWidget(save_mask_button, 3, 0, 1, 2)
+        self.busy_controls.append(save_mask_button)
+        tools_layout.addWidget(save_mask_button, 0, 0, 1, 2)
         clear_mask_button = QPushButton("Limpar mascara")
         clear_mask_button.clicked.connect(self.clear_mask)
         undo_mask_button = QPushButton("Desfazer")
         undo_mask_button.clicked.connect(self.undo_mask)
-        tools_layout.addWidget(clear_mask_button, 4, 0)
-        tools_layout.addWidget(undo_mask_button, 4, 1)
-        tools_layout.addWidget(self.tool_hint_label, 5, 0, 1, 2)
+        self.busy_controls.extend([clear_mask_button, undo_mask_button])
+        tools_layout.addWidget(clear_mask_button, 1, 0)
+        tools_layout.addWidget(undo_mask_button, 1, 1)
         right_layout.addWidget(tools_box)
 
-        self.window.add_button(right_layout, "Excluir da base", self.exclude_image)
-        self.window.add_button(
+        exclude_button = self.window.add_button(right_layout, "Excluir da base", self.exclude_image)
+        open_folder_button = self.window.add_button(
             right_layout,
             "Abrir pasta de entrada",
             lambda: self.window.open_folder(conversion_input_dir(self.window.config)),
         )
+        self.busy_controls.extend([exclude_button, open_folder_button])
+        self.busy_progress = QProgressBar()
+        self.busy_progress.setRange(0, 0)
+        self.busy_progress.setTextVisible(False)
+        self.busy_progress.setVisible(False)
+        right_layout.addWidget(self.busy_progress)
         right_layout.addWidget(self.status_label)
         right_layout.addStretch()
         layout.addWidget(right, 0)
@@ -188,25 +198,21 @@ class AnnotationPage(QWidget):
     def refresh_images(self):
         if not self.build_ui:
             if self.current_image_entry:
-                self.current_image_entry["has_mask"] = (
-                    self.current_image_entry["seg_path"].exists()
-                    or self.current_image_entry["tif_mask_path"].exists()
-                )
+                self.current_image_entry.refresh_state()
             return
         input_dir = conversion_input_dir(self.window.config)
         input_dir.mkdir(parents=True, exist_ok=True)
         selected = self.window.pending_annotation_image_name
         if selected is None and self.image_list.currentItem():
-            current_entry = self.image_list.currentItem().data(Qt.ItemDataRole.UserRole) or {}
-            selected_path = current_entry.get("path")
-            selected = selected_path.name if selected_path else None
+            current_entry = self.image_list.currentItem().data(Qt.ItemDataRole.UserRole)
+            selected = current_entry.path.name if current_entry else None
         entries = self.image_entries()
         self.image_list.clear()
         for entry in entries:
-            item = QListWidgetItem(f"{entry['label']}  {entry['path'].name}")
+            item = QListWidgetItem(f"{entry.label}  {entry.path.name}")
             item.setData(Qt.ItemDataRole.UserRole, entry)
             self.image_list.addItem(item)
-        missing_count = sum(1 for entry in entries if not entry["has_mask"])
+        missing_count = sum(1 for entry in entries if not entry.has_mask)
         masked_count = len(entries) - missing_count
         self.summary.setText(
             f"Sem mascara: {missing_count}\n"
@@ -218,7 +224,7 @@ class AnnotationPage(QWidget):
             for index in range(self.image_list.count()):
                 item = self.image_list.item(index)
                 entry = item.data(Qt.ItemDataRole.UserRole) or {}
-                if entry.get("path") and entry["path"].name == selected:
+                if entry and entry.path.name == selected:
                     self.image_list.setCurrentItem(item)
                     self.window.pending_annotation_image_name = None
                     return
@@ -244,29 +250,31 @@ class AnnotationPage(QWidget):
         for path in image_paths:
             seg_path = path.with_name(f"{path.stem}_seg.npy")
             tif_mask_path = path.with_name(f"{path.stem}_masks.tif")
-            has_mask = seg_path.exists() or tif_mask_path.exists()
+            validation = validate_mask_file(seg_path, tif_mask_path)
+            has_mask = validation["valid"]
             entries.append(
-                {
-                    "path": path,
-                    "seg_path": seg_path,
-                    "tif_mask_path": tif_mask_path,
-                    "has_mask": has_mask,
-                    "label": "[Com mascara]" if has_mask else "[Sem mascara]",
-                }
+                DatasetMaskTarget(
+                    path=path,
+                    seg_path=seg_path,
+                    tif_mask_path=tif_mask_path,
+                    has_mask=has_mask,
+                    label="[Com mascara]" if has_mask else "[Sem mascara]",
+                    window=self.window,
+                )
             )
-        return sorted(entries, key=lambda entry: (entry["has_mask"], entry["path"].name.lower()))
+        return sorted(entries, key=lambda entry: (entry.has_mask, entry.path.name.lower()))
 
     def current_image_path(self):
         if not self.build_ui:
-            entry = self.current_image_entry or {}
-            path = entry.get("path")
+            entry = self.current_image_entry
+            path = entry.path if entry else None
             return path if path and path.exists() else None
         current = self.image_list.currentItem()
         if current is None:
             return None
-        entry = current.data(Qt.ItemDataRole.UserRole) or {}
-        path = entry.get("path")
-        return path if path.exists() else None
+        entry = current.data(Qt.ItemDataRole.UserRole)
+        path = entry.path if entry else None
+        return path if path and path.exists() else None
 
     def current_entry(self):
         if not self.build_ui:
@@ -285,7 +293,7 @@ class AnnotationPage(QWidget):
         self.show_image(entry)
 
     def show_image(self, entry):
-        image_path = entry["path"]
+        image_path = entry.path
         if not image_path.exists():
             if self.build_ui:
                 self.preview_label.setText("Imagem nao encontrada.")
@@ -295,17 +303,22 @@ class AnnotationPage(QWidget):
         try:
             self.current_image_entry = entry
             self.base_image = Image.open(image_path).convert("RGB")
-            self.mask = load_mask(entry["seg_path"], entry["tif_mask_path"], self.base_image.size)
+            self.mask = entry.load_mask(self.base_image.size)
             self.mask_history = []
             self.reset_transient_drawing()
             self.update_preview()
-            status = "com mascara" if entry["has_mask"] else "sem mascara"
-            self.set_status(f"Selecionada: {image_path.name} ({status})")
+            self.set_status(entry.status_text())
         except Exception as exc:
             if self.build_ui:
                 self.preview_label.setText(f"Nao foi possivel carregar preview:\n{exc}")
                 self.preview_label.setPixmap(QPixmap())
             self.set_status(f"Nao foi possivel carregar preview: {exc}")
+            if hasattr(self.window, "show_error"):
+                self.window.show_error(
+                    "Erro ao carregar preview",
+                    "Nao foi possivel carregar a imagem ou a mascara.",
+                    traceback.format_exc(),
+                )
 
     def update_preview(self):
         if self.base_image is None:
@@ -344,13 +357,14 @@ class AnnotationPage(QWidget):
         self.tool = tool
         hints = {
             "contour": "Janela maior: botao direito desenha/fecha; Ctrl + esquerdo remove a mascara clicada.",
-            "brush": "Janela maior: arraste com o botao direito para pintar; Ctrl + esquerdo remove a mascara clicada.",
             "eraser": "Janela maior: arraste com o botao direito para apagar; Ctrl + esquerdo remove a mascara clicada.",
         }
+        if tool not in hints:
+            tool = "contour"
+            self.tool = tool
         self.tool_hint_label.setText(hints[tool])
         for button, active in [
             (self.contour_button, tool == "contour"),
-            (self.brush_button, tool == "brush"),
             (self.eraser_button, tool == "eraser"),
         ]:
             if button is None:
@@ -384,13 +398,16 @@ class AnnotationPage(QWidget):
         self.flow.setText(str(config["flow_threshold"]))
 
     def open_editor(self):
+        if self.is_busy:
+            QMessageBox.information(self.window, "Anotar", "Aguarde a mascara automatica terminar.")
+            return
         if self.current_image_entry is None or self.base_image is None:
             QMessageBox.information(self.window, "Editar mascara", "Selecione uma imagem para editar.")
             return
 
         dialog = AnnotationEditorDialog(
             self.window,
-            self.current_image_entry["path"].name,
+            self.current_image_entry.display_name,
             {
                 "start": self.start_draw,
                 "drag": self.drag_draw,
@@ -402,6 +419,7 @@ class AnnotationPage(QWidget):
             self.set_tool,
             self.brush_size.value(),
             self.brush_size.setValue,
+            self.current_prediction_callback(),
             self.save_mask,
             self.clear_mask,
             self.undo_mask,
@@ -409,17 +427,51 @@ class AnnotationPage(QWidget):
         dialog.set_refresh_callback(self.update_preview)
         dialog.finished.connect(self.close_editor)
         self.editor = dialog
+        self.editor.set_busy(self.is_busy)
         self.editor.reset_zoom()
         self.update_preview()
         dialog.exec()
 
+    def set_busy(self, busy, message=None):
+        self.is_busy = busy
+        self.reset_transient_drawing()
+        if self.build_ui:
+            self.preview_label.setEnabled(not busy)
+            self.image_list.setEnabled(not busy)
+            if hasattr(self, "busy_progress"):
+                self.busy_progress.setVisible(busy)
+        for widget in self.busy_controls:
+            widget.setEnabled(not busy)
+        if self.editor is not None:
+            self.editor.set_busy(busy)
+        if message:
+            self.set_status(message)
+
+    def current_prediction_callback(self):
+        if self.current_image_entry and getattr(self.current_image_entry, "prediction_callback", None):
+            return self.current_image_entry.prediction_callback
+        return self.window.run_annotation_mask_prediction
+
     def close_editor(self):
         self.editor = None
         self.reset_transient_drawing()
+        if self.current_image_entry and self.current_image_entry.commit_on_close:
+            self.save_mask(
+                silent=False,
+                recalculate=self.current_image_entry.recalculate_on_close,
+            )
+            self.update_preview()
+            return
         self.save_mask(silent=True)
         self.update_preview()
 
-    def widget_to_image_xy(self, source_label, x, y):
+    def reload_current_image(self):
+        if self.current_image_entry is None:
+            return
+        self.current_image_entry.refresh_state()
+        self.show_image(self.current_image_entry)
+
+    def widget_to_image_xy(self, source_label, x, y, clamp_to_image=False):
         if self.base_image is None:
             return None
         image_width, image_height = self.base_image.size
@@ -436,8 +488,27 @@ class AnnotationPage(QWidget):
             offset_y = (label_height - display_height) / 2
         image_x = int((x - offset_x) / scale)
         image_y = int((y - offset_y) / scale)
+        if clamp_to_image:
+            image_x = max(0, min(image_width - 1, image_x))
+            image_y = max(0, min(image_height - 1, image_y))
+            return image_x, image_y
         if image_x < 0 or image_y < 0 or image_x >= image_width or image_y >= image_height:
             return None
+        return image_x, image_y
+
+    def snap_contour_point_to_edge(self, point, tolerance=4):
+        if self.base_image is None:
+            return point
+        image_width, image_height = self.base_image.size
+        image_x, image_y = point
+        if image_x <= tolerance:
+            image_x = 0
+        elif image_x >= image_width - 1 - tolerance:
+            image_x = image_width - 1
+        if image_y <= tolerance:
+            image_y = 0
+        elif image_y >= image_height - 1 - tolerance:
+            image_y = image_height - 1
         return image_x, image_y
 
     def push_history(self):
@@ -468,12 +539,15 @@ class AnnotationPage(QWidget):
         self.status_label.setText(f"Mascara removida no ponto clicado: rotulo {label_value}.")
 
     def start_draw(self, source_label, x, y):
+        if self.is_busy:
+            return
         if self.mask is None or self.base_image is None:
             return
-        point = self.widget_to_image_xy(source_label, x, y)
+        point = self.widget_to_image_xy(source_label, x, y, clamp_to_image=True)
         if point is None:
             return
         if self.tool == "contour":
+            point = self.snap_contour_point_to_edge(point)
             if self.drawing:
                 if self.distance_between_points(point, self.contour_points[-1]) >= 3:
                     self.contour_points.append(point)
@@ -486,23 +560,26 @@ class AnnotationPage(QWidget):
             return
         self.push_history()
         self.drawing = True
-        self.current_stroke_label = next_label_value(self.mask) if self.tool == "brush" else None
+        self.current_stroke_label = None
         self.stroke_points = [point]
         self.update_preview()
 
     def drag_draw(self, source_label, x, y):
+        if self.is_busy:
+            return
         if not self.drawing:
             return
-        point = self.widget_to_image_xy(source_label, x, y)
+        point = self.widget_to_image_xy(source_label, x, y, clamp_to_image=True)
         if point is None:
             return
         if self.tool == "contour":
+            point = self.snap_contour_point_to_edge(point)
             if self.should_auto_close_contour(point):
                 self.push_history()
                 self.close_contour()
                 self.update_preview()
                 return
-            if not self.contour_points or self.distance_between_points(point, self.contour_points[-1]) >= 6:
+            if not self.contour_points or self.distance_between_points(point, self.contour_points[-1]) >= 3:
                 self.contour_points.append(point)
                 self.update_preview()
             return
@@ -511,11 +588,13 @@ class AnnotationPage(QWidget):
             self.update_preview()
 
     def finish_draw(self, source_label, x, y):
+        if self.is_busy:
+            return
         if not self.drawing:
             return
         if self.tool == "contour":
             return
-        point = self.widget_to_image_xy(source_label, x, y)
+        point = self.widget_to_image_xy(source_label, x, y, clamp_to_image=True)
         if point is not None and (
             not self.stroke_points
             or self.distance_between_points(point, self.stroke_points[-1]) >= 2
@@ -539,9 +618,27 @@ class AnnotationPage(QWidget):
         return ((first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2) ** 0.5
 
     def apply_stroke(self):
-        for point in self.stroke_points:
+        for point in self.interpolated_stroke_points():
             self.apply_brush_at(point)
         self.update_preview()
+
+    def interpolated_stroke_points(self):
+        if len(self.stroke_points) < 2:
+            return list(self.stroke_points)
+        points = [self.stroke_points[0]]
+        step = max(1.0, self.brush_size.value() / 3)
+        for start, end in zip(self.stroke_points, self.stroke_points[1:]):
+            distance = self.distance_between_points(start, end)
+            segments = max(1, int(distance / step))
+            for index in range(1, segments + 1):
+                ratio = index / segments
+                points.append(
+                    (
+                        int(round(start[0] + (end[0] - start[0]) * ratio)),
+                        int(round(start[1] + (end[1] - start[1]) * ratio)),
+                    )
+                )
+        return points
 
     def apply_brush_at(self, point):
         apply_brush(self.mask, point, self.brush_size.value(), self.tool, self.current_stroke_label)
@@ -560,7 +657,7 @@ class AnnotationPage(QWidget):
             self.distance_between_points(previous, current)
             for previous, current in zip(self.contour_points, self.contour_points[1:])
         )
-        return path_distance >= 40 and self.distance_between_points(point, start_point) <= 10
+        return path_distance >= 40 and self.distance_between_points(point, start_point) <= 6
 
     def close_contour(self):
         self.fill_contour()
@@ -574,6 +671,8 @@ class AnnotationPage(QWidget):
         self.current_stroke_label = None
 
     def clear_mask(self):
+        if self.is_busy:
+            return
         if self.mask is None:
             return
         self.push_history()
@@ -583,25 +682,23 @@ class AnnotationPage(QWidget):
         self.status_label.setText("Mascara limpa em memoria. Clique em salvar para gravar.")
 
     def undo_mask(self):
+        if self.is_busy:
+            return
         if not self.mask_history:
             return
         self.reset_transient_drawing()
         self.mask = self.mask_history.pop()
         self.update_preview()
 
-    def save_mask(self, silent=False):
-        entry = self.current_image_entry
-        if not entry or self.mask is None:
+    def save_mask(self, silent=False, recalculate=False):
+        if self.is_busy:
+            return
+        target = self.current_image_entry
+        if not target or self.mask is None:
             if not silent:
                 QMessageBox.information(self.window, "Anotar", "Selecione uma imagem para salvar a mascara.")
             return
-        seg_path = entry["seg_path"]
-        tif_path = entry["tif_mask_path"]
-        save_mask(seg_path, tif_path, self.mask)
-        self.status_label.setText(f"Mascara salva: {seg_path.name} e {tif_path.name}")
-        self.window.pending_annotation_image_name = entry["path"].name
-        self.refresh_images()
-        self.window.refresh_dataset_import()
+        target.save(self.mask, self, silent=silent, recalculate=recalculate)
 
     def exclude_image(self):
         image_path = self.current_image_path()

@@ -9,11 +9,15 @@ from skimage.measure import regionprops
 MEASUREMENT_COLUMNS = [
     "filename",
     "cell_id",
-    "area",
-    "perimeter",
+    "area_px",
+    "perimeter_px",
     "centroid_x",
     "centroid_y",
-    "diametro_elipse_menor",
+    "diametro_elipse_menor_px",
+    "area_calibrada",
+    "perimeter_calibrado",
+    "diametro_elipse_menor_calibrado",
+    "unidade",
 ]
 
 SUMMARY_COLUMNS = [
@@ -22,11 +26,14 @@ SUMMARY_COLUMNS = [
     "painted_pixels",
     "painted_ratio_pct",
     "freq_vaso_50pct",
-    "media_area",
-    "media_diametro",
+    "media_area_px",
+    "media_diametro_px",
+    "media_area_calibrada",
+    "media_diametro_calibrado",
+    "unidade",
 ]
 
-WHOLE_CELL_BORDER_EXCLUSION = 16
+WHOLE_CELL_BORDER_EXCLUSION = 2
 
 
 @dataclass(frozen=True)
@@ -51,8 +58,8 @@ def filtrar_celulas_borda_proporcional(
 
     area_util_mask = np.zeros_like(masks, dtype=bool)
     area_util_mask[
-        borda_expandida : H - (borda_expandida + borda_expandida),
-        borda_expandida : W - (borda_expandida + borda_expandida),
+        borda_expandida : H - borda_expandida,
+        borda_expandida : W - borda_expandida,
     ] = True
 
     for r in regions:
@@ -174,22 +181,30 @@ def build_mask_inteiros(mask):
     return remove_labels_near_image_border(filtered, border_width=WHOLE_CELL_BORDER_EXCLUSION)
 
 
-def build_measurement_rows(filename, props_inteiros, ellipse_by_label):
+def build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit="", unit_per_pixel=0.0):
     rows = []
+    has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
     for i, p in enumerate(props_inteiros, start=1):
         perimeter = getattr(p, "perimeter", None)
         ellipse = ellipse_by_label.get(p.label)
+        area_px = float(p.area)
+        perimeter_px = float(perimeter) if perimeter is not None else None
+        diameter_px = float(ellipse.minor_axis_length) if ellipse else None
 
         rows.append(
             {
                 "filename": filename,
                 "cell_id": i,
-                "area": round(float(p.area), 3),
-                "perimeter": round(float(perimeter), 3) if perimeter is not None else None,
+                "area_px": round(area_px, 3),
+                "perimeter_px": round(perimeter_px, 3) if perimeter_px is not None else None,
                 "centroid_x": round(float(p.centroid[0]), 3),
                 "centroid_y": round(float(p.centroid[1]), 3),
-                "diametro_elipse_menor": round(float(ellipse.minor_axis_length), 3) if ellipse else None,
+                "diametro_elipse_menor_px": round(diameter_px, 3) if diameter_px is not None else None,
+                "area_calibrada": round(area_px * (unit_per_pixel ** 2), 3) if has_calibration else None,
+                "perimeter_calibrado": round(perimeter_px * unit_per_pixel, 3) if has_calibration and perimeter_px is not None else None,
+                "diametro_elipse_menor_calibrado": round(diameter_px * unit_per_pixel, 3) if has_calibration and diameter_px is not None else None,
+                "unidade": unit if has_calibration else "",
             }
         )
 
@@ -203,6 +218,8 @@ def build_summary_row(
     area_total_vasos,
     area_total_img,
     freq_vaso_50pct,
+    unit="",
+    unit_per_pixel=0.0,
 ):
     areas_inteiros = [p.area for p in props_inteiros]
     diametros_inteiros = [
@@ -214,6 +231,7 @@ def build_summary_row(
     media_area = np.mean(areas_inteiros) if areas_inteiros else 0
     media_diametro = np.mean(diametros_inteiros) if diametros_inteiros else 0
     fracao_area_vasos = area_total_vasos / area_total_img
+    has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
     return {
         "filename": filename,
@@ -221,12 +239,15 @@ def build_summary_row(
         "painted_pixels": int(area_total_vasos),
         "painted_ratio_pct": float(round(fracao_area_vasos * 100, 3)),
         "freq_vaso_50pct": freq_vaso_50pct,
-        "media_area": float(media_area),
-        "media_diametro": float(media_diametro),
+        "media_area_px": float(media_area),
+        "media_diametro_px": float(media_diametro),
+        "media_area_calibrada": float(media_area * (unit_per_pixel ** 2)) if has_calibration else None,
+        "media_diametro_calibrado": float(media_diametro * unit_per_pixel) if has_calibration else None,
+        "unidade": unit if has_calibration else "",
     }
 
 
-def process_mask_for_csv(mask, filename, output_dir=None):
+def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixel=0.0):
     H, W = mask.shape
 
     mask_50pct = filtrar_celulas_borda_proporcional(
@@ -246,7 +267,7 @@ def process_mask_for_csv(mask, filename, output_dir=None):
     area_total_vasos = sum(p.area for p in props_todos)
     area_total_img = H * W
 
-    measurements = build_measurement_rows(filename, props_inteiros, ellipse_by_label)
+    measurements = build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit, unit_per_pixel)
     summary = build_summary_row(
         filename,
         props_inteiros,
@@ -254,6 +275,8 @@ def process_mask_for_csv(mask, filename, output_dir=None):
         area_total_vasos,
         area_total_img,
         freq_vaso_50pct,
+        unit,
+        unit_per_pixel,
     )
 
     return measurements, summary

@@ -1,4 +1,5 @@
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -23,6 +24,9 @@ def parse_args():
     parser.add_argument("--masks-dir", default=str(project_dir / "outputs" / default_model / "predictions"))
     parser.add_argument("--output-dir", default=str(project_dir / "outputs" / default_model))
     parser.add_argument("--pattern", default="*_pred_masks.tif")
+    parser.add_argument("--images", nargs="*", default=None, help="Stems das imagens que devem ser medidas.")
+    parser.add_argument("--unit", default="")
+    parser.add_argument("--unit-per-pixel", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -49,34 +53,69 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    selected_stems = set(args.images or [])
     mask_paths = sorted(masks_dir.glob(args.pattern))
+    if selected_stems:
+        mask_paths = [path for path in mask_paths if filename_from_mask_path(path) in selected_stems]
     if not mask_paths:
         raise RuntimeError(f"Nenhuma mascara encontrada em {masks_dir} com padrao {args.pattern}.")
 
     all_measurements = []
     all_summaries = []
+    total = len(mask_paths)
+    print(f"PROGRESS 0 {total} Iniciando medidas", flush=True)
 
-    for mask_path in mask_paths:
+    for index, mask_path in enumerate(mask_paths, start=1):
+        filename = filename_from_mask_path(mask_path)
         try:
             mask = load_2d_mask(mask_path)
         except ValueError as exc:
-            print(f"[IGNORADO] {exc}")
+            print(f"[IGNORADO] {exc}", flush=True)
+            print(f"PROGRESS {index} {total} Medidas: {filename}", flush=True)
             continue
 
-        filename = filename_from_mask_path(mask_path)
-        measurements, summary = process_mask_for_csv(mask, filename, output_dir)
+        measurements, summary = process_mask_for_csv(
+            mask,
+            filename,
+            output_dir,
+            unit=args.unit,
+            unit_per_pixel=args.unit_per_pixel,
+        )
         all_measurements.extend(measurements)
         all_summaries.append(summary)
-        print(f"{filename}: {summary['cell_count']} objetos inteiros, {summary['freq_vaso_50pct']} objetos 50pct+")
+        print(f"MEASUREMENTS {filename}", flush=True)
+        print(f"{filename}: {summary['cell_count']} objetos inteiros, {summary['freq_vaso_50pct']} objetos 50pct+", flush=True)
+        print(f"PROGRESS {index} {total} Medidas: {filename}", flush=True)
 
     if not all_summaries:
         raise RuntimeError("Nenhuma mascara valida foi processada.")
 
+    if selected_stems:
+        measurements_csv = output_dir / "cell_measurements.csv"
+        if measurements_csv.exists():
+            with measurements_csv.open("r", encoding="utf-8-sig", newline="") as file:
+                existing_measurements = [
+                    row
+                    for row in csv.DictReader(file, delimiter=";")
+                    if row.get("filename") not in selected_stems
+                ]
+            all_measurements = existing_measurements + all_measurements
+
+        summary_csv = output_dir / "cell_counts.csv"
+        if summary_csv.exists():
+            with summary_csv.open("r", encoding="utf-8-sig", newline="") as file:
+                existing_summaries = [
+                    row
+                    for row in csv.DictReader(file, delimiter=";")
+                    if row.get("filename") not in selected_stems
+                ]
+            all_summaries = existing_summaries + all_summaries
+
     measurements_path = save_csv_measurements(output_dir, all_measurements)
     summary_path = save_csv_summary(output_dir, all_summaries)
 
-    print(f"\nCSV de medicoes salvo em: {measurements_path}")
-    print(f"CSV de contagens salvo em: {summary_path}")
+    print(f"\nCSV de medicoes salvo em: {measurements_path}", flush=True)
+    print(f"CSV de contagens salvo em: {summary_path}", flush=True)
 
 
 if __name__ == "__main__":

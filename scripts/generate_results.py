@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import tifffile as tiff
 from cellpose import core, models
+from PIL import Image
 
 
 DEFAULT_PROJECT_DIR = Path(__file__).resolve().parents[1] / "projects" / "eucalipto"
@@ -13,6 +14,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Gera predicoes e overlays em uma unica passada.")
     parser.add_argument("--model", default=str(DEFAULT_PROJECT_DIR / "models" / "cpsam_vasos_eucalipto_v1"))
     parser.add_argument("--input", default=str(DEFAULT_PROJECT_DIR / "data" / "test" / "images"))
+    parser.add_argument("--images", nargs="*", default=None, help="Lista opcional de imagens especificas para processar.")
     parser.add_argument("--predictions-output", default=str(DEFAULT_PROJECT_DIR / "outputs" / "cpsam_vasos_eucalipto_v1" / "predictions"))
     parser.add_argument("--overlays-output", default=str(DEFAULT_PROJECT_DIR / "outputs" / "cpsam_vasos_eucalipto_v1" / "overlays"))
     parser.add_argument("--padding", type=int, default=64)
@@ -35,11 +37,17 @@ def pad_image(image, padding):
     raise ValueError(f"Formato de imagem nao suportado: {image.shape}")
 
 
-def crop_mask(mask, padding):
+def crop_mask(mask, padding, original_shape=None):
     if padding <= 0:
-        return mask
+        if original_shape is None:
+            return mask
+        height, width = original_shape[:2]
+        return mask[:height, :width]
 
-    return mask[padding:-padding, padding:-padding]
+    if original_shape is None:
+        return mask[padding:-padding, padding:-padding]
+    height, width = original_shape[:2]
+    return mask[padding : padding + height, padding : padding + width]
 
 
 def normalize_to_uint8(image):
@@ -70,12 +78,36 @@ def to_rgb(image):
     raise ValueError(f"Formato de imagem nao suportado: {image.shape}")
 
 
-def create_overlay(image, mask, color=(255, 0, 0), alpha=0.45):
-    rgb = to_rgb(image).astype(np.float32)
-    vessel_pixels = mask > 0
+def read_image(image_path):
+    if image_path.suffix.lower() in {".tif", ".tiff"}:
+        return tiff.imread(image_path)
 
-    overlay_color = np.array(color, dtype=np.float32)
-    rgb[vessel_pixels] = ((1 - alpha) * rgb[vessel_pixels]) + (alpha * overlay_color)
+    with Image.open(image_path) as image:
+        return np.asarray(image)
+
+
+def label_color(label_value):
+    palette = [
+        (230, 92, 58),
+        (22, 107, 92),
+        (71, 125, 210),
+        (174, 92, 179),
+        (218, 154, 48),
+        (64, 156, 178),
+        (122, 144, 57),
+        (202, 84, 123),
+    ]
+    return np.array(palette[(int(label_value) - 1) % len(palette)], dtype=np.float32)
+
+
+def create_overlay(image, mask, alpha=0.45):
+    rgb = to_rgb(image).astype(np.float32)
+    for label_value in np.unique(mask):
+        if label_value == 0:
+            continue
+        vessel_pixels = mask == label_value
+        overlay_color = label_color(label_value)
+        rgb[vessel_pixels] = ((1 - alpha) * rgb[vessel_pixels]) + (alpha * overlay_color)
 
     return rgb.astype(np.uint8)
 
@@ -94,15 +126,22 @@ def main():
     model = models.CellposeModel(gpu=use_gpu, pretrained_model=str(model_path))
     diameter = None if args.diameter <= 0 else args.diameter
 
-    image_files = sorted(input_dir.glob("*.tif"))
+    if args.images:
+        image_files = sorted(Path(path) for path in args.images)
+    else:
+        image_files = sorted(input_dir.glob("*.tif"))
     if not image_files:
         raise RuntimeError(f"Nenhuma imagem encontrada em: {input_dir}")
+    missing_files = [path for path in image_files if not path.exists()]
+    if missing_files:
+        missing_text = "\n".join(str(path) for path in missing_files)
+        raise RuntimeError(f"Imagem(ns) nao encontrada(s):\n{missing_text}")
 
     total = len(image_files)
     print(f"PROGRESS 0 {total} Iniciando resultados", flush=True)
 
     for index, image_path in enumerate(image_files, start=1):
-        image = tiff.imread(image_path)
+        image = read_image(image_path)
         padded_image = pad_image(image, args.padding)
 
         eval_result = model.eval(
@@ -114,7 +153,7 @@ def main():
             flow_threshold=args.flow_threshold,
         )
         padded_masks = eval_result[0].astype(np.uint16)
-        masks = crop_mask(padded_masks, args.padding).astype(np.uint16)
+        masks = crop_mask(padded_masks, args.padding, image.shape).astype(np.uint16)
 
         pred_path = predictions_output / f"{image_path.stem}_pred_masks.tif"
         padded_pred_path = predictions_output / f"{image_path.stem}_pred_padded_masks.tif"

@@ -9,5 +9,13 @@
   "test_images_dir": "data/test/images",
   "test_masks_dir": "data/test/masks",
   "predictions_dir": "outputs\\cpsam_vasos_eucalipto_v1\\predictions",
-  "overlays_dir": "outputs\\cpsam_vasos_eucalipto_v1\\overlays"
+  "overlays_dir": "outputs\\cpsam_vasos_eucalipto_v1\\overlays",
+  "calibration": {
+    "unit": "um",
+    "unit_per_pixel": 0.0,
+    "pixel_distance": 0.0,
+    "real_distance": 0.0,
+    "source": "",
+    "source_image": ""
+  }
 }

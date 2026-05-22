@@ -3,13 +3,83 @@ import tifffile as tiff
 from PIL import Image, ImageDraw
 from skimage.measure import label
 
+MIN_MASK_PIXELS = 20
+
+
+def load_mask_file(seg_path, tif_mask_path):
+    if seg_path.exists():
+        data = np.load(seg_path, allow_pickle=True).item()
+        return data.get("masks")
+    if tif_mask_path.exists():
+        with Image.open(tif_mask_path) as image:
+            return np.array(image)
+    return None
+
+
+def validate_mask_content(mask, min_pixels=MIN_MASK_PIXELS, min_objects=1):
+    if mask is None:
+        return {
+            "valid": False,
+            "status": "Sem mascara",
+            "pixel_count": 0,
+            "object_count": 0,
+            "reason": "arquivo ausente",
+        }
+
+    mask = np.asarray(mask)
+    if mask.size == 0:
+        return {
+            "valid": False,
+            "status": "Mascara vazia",
+            "pixel_count": 0,
+            "object_count": 0,
+            "reason": "sem pixels",
+        }
+
+    positive = mask > 0
+    pixel_count = int(np.count_nonzero(positive))
+    object_count = int(len([value for value in np.unique(mask) if int(value) > 0]))
+    if object_count < min_objects or pixel_count == 0:
+        return {
+            "valid": False,
+            "status": "Mascara vazia",
+            "pixel_count": pixel_count,
+            "object_count": object_count,
+            "reason": "sem objeto desenhado",
+        }
+    if pixel_count < min_pixels:
+        return {
+            "valid": False,
+            "status": "Mascara pequena",
+            "pixel_count": pixel_count,
+            "object_count": object_count,
+            "reason": f"menos de {min_pixels} pixels",
+        }
+    return {
+        "valid": True,
+        "status": "OK",
+        "pixel_count": pixel_count,
+        "object_count": object_count,
+        "reason": "",
+    }
+
+
+def validate_mask_file(seg_path, tif_mask_path, min_pixels=MIN_MASK_PIXELS):
+    try:
+        mask = load_mask_file(seg_path, tif_mask_path)
+    except Exception as exc:
+        return {
+            "valid": False,
+            "status": "Mascara invalida",
+            "pixel_count": 0,
+            "object_count": 0,
+            "reason": str(exc),
+        }
+    return validate_mask_content(mask, min_pixels=min_pixels)
+
 
 def load_mask(seg_path, tif_mask_path, image_size):
-    mask = None
-    if seg_path.exists():
-        mask = np.load(seg_path, allow_pickle=True).item().get("masks")
-    elif tif_mask_path.exists():
-        mask = np.array(Image.open(tif_mask_path))
+    mask = load_mask_file(seg_path, tif_mask_path)
     if mask is None:
         return np.zeros((image_size[1], image_size[0]), dtype=np.uint16)
     mask = np.asarray(mask).astype(np.uint16)
@@ -30,18 +100,20 @@ def overlay_mask(image, mask, color=(22, 107, 92), alpha=110):
 
 def draw_contour_preview(image, points):
     preview = image.convert("RGBA")
-    draw = ImageDraw.Draw(preview)
-    line_color = (49, 95, 159, 105)
-    start_color = (190, 54, 48, 145)
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    line_color = (0, 210, 96, 210)
+    start_fill = (0, 210, 96, 170)
+    start_outline = (0, 150, 68, 230)
     if len(points) > 1:
         draw.line(smooth_points(points), fill=line_color, width=5, joint="curve")
     elif points:
         x, y = points[0]
-        draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=start_color)
+        draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=start_fill)
     if points:
         x, y = points[0]
-        draw.ellipse((x - 9, y - 9, x + 9, y + 9), outline=start_color, width=3)
-    return preview.convert("RGB")
+        draw.ellipse((x - 9, y - 9, x + 9, y + 9), outline=start_outline, width=3)
+    return Image.alpha_composite(preview, layer).convert("RGB")
 
 
 def draw_stroke_preview(image, points, radius, tool):
@@ -73,11 +145,73 @@ def smooth_points(points, iterations=2, closed=False):
     return [(int(round(x)), int(round(y))) for x, y in smoothed]
 
 
-def contour_area(shape, points):
+def contour_area(shape, points, smooth=False):
     mask_image = Image.new("L", (shape[1], shape[0]), 0)
     draw = ImageDraw.Draw(mask_image)
-    draw.polygon(smooth_points(points, closed=True), fill=1)
+    polygon_points = close_contour_through_image_border(shape, points)
+    polygon_points = smooth_points(polygon_points, closed=True) if smooth else polygon_points
+    draw.polygon(polygon_points, fill=1)
     return np.array(mask_image, dtype=bool)
+
+
+def close_contour_through_image_border(shape, points):
+    if len(points) < 3:
+        return points
+    height, width = shape
+    start = points[0]
+    end = points[-1]
+    if not is_border_point(start, width, height) or not is_border_point(end, width, height):
+        return points
+    border_points = shortest_border_path(end, start, width, height)
+    if not border_points:
+        return points
+    return [*points, *border_points]
+
+
+def is_border_point(point, width, height):
+    x, y = point
+    return x <= 0 or y <= 0 or x >= width - 1 or y >= height - 1
+
+
+def shortest_border_path(start, end, width, height):
+    perimeter = image_border_perimeter(width, height)
+    if not perimeter:
+        return []
+    start_index = closest_border_index(start, perimeter)
+    end_index = closest_border_index(end, perimeter)
+    if start_index == end_index:
+        return []
+
+    forward = walk_border(perimeter, start_index, end_index, 1)
+    backward = walk_border(perimeter, start_index, end_index, -1)
+    return forward if len(forward) <= len(backward) else backward
+
+
+def walk_border(perimeter, start_index, end_index, direction):
+    points = []
+    index = start_index
+    while index != end_index:
+        index = (index + direction) % len(perimeter)
+        points.append(perimeter[index])
+    return points
+
+
+def image_border_perimeter(width, height):
+    if width <= 0 or height <= 0:
+        return []
+    top = [(x, 0) for x in range(width)]
+    right = [(width - 1, y) for y in range(1, height)]
+    bottom = [(x, height - 1) for x in range(width - 2, -1, -1)] if height > 1 else []
+    left = [(0, y) for y in range(height - 2, 0, -1)] if width > 1 else []
+    return top + right + bottom + left
+
+
+def closest_border_index(point, perimeter):
+    x, y = point
+    return min(
+        range(len(perimeter)),
+        key=lambda index: (perimeter[index][0] - x) ** 2 + (perimeter[index][1] - y) ** 2,
+    )
 
 
 def next_label_value(mask):

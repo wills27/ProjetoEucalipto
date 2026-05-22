@@ -65,4 +65,7 @@ def auto_split_indices(entries, seed=42, train_ratio=0.7, val_ratio=0.15):
         assignments[row] = "val"
     for row in rows[n_train + n_val:]:
         assignments[row] = "test"
+    for index, entry in enumerate(entries):
+        if entry.get("status") == "Sem mascara" and entry.get("include"):
+            assignments[index] = "test"
     return assignments

@@ -45,6 +45,23 @@ APP_STYLE = r"""
                 color: #69736d;
                 background: transparent;
             }
+            QLabel#errorTitle {
+                color: #9f1d1d;
+                font-size: 15pt;
+                font-weight: 700;
+                background: transparent;
+            }
+            QLabel#errorMessage {
+                color: #1f2933;
+                background: transparent;
+            }
+            QTextEdit#errorDetails {
+                background: #fffafa;
+                color: #1f2933;
+                border: 1px solid #e5b5b5;
+                border-radius: 6px;
+                font-family: Consolas;
+            }
             QLabel#statusCardTitle {
                 color: #69736d;
                 font-size: 8pt;
@@ -116,6 +133,20 @@ APP_STYLE = r"""
             QPushButton#primary:pressed {
                 background: #13574d;
                 border: 1px solid #0f463e;
+            }
+            QPushButton#accent {
+                background: #f0b429;
+                border: 1px solid #d99718;
+                color: #1f2933;
+                font-weight: 700;
+            }
+            QPushButton#accent:hover {
+                background: #ffd166;
+                border: 1px solid #c9850f;
+            }
+            QPushButton#accent:pressed {
+                background: #d99718;
+                border: 1px solid #a8640b;
             }
             QPushButton#nav {
                 text-align: left;
@@ -206,12 +237,69 @@ APP_STYLE = r"""
                 selection-color: #ffffff;
                 gridline-color: #e8ece6;
             }
+            QListWidget {
+                outline: 0;
+            }
+            QListWidget::item {
+                border-bottom: 1px solid #e8ece6;
+                border-radius: 3px;
+                padding: 5px 8px;
+                margin: 0;
+            }
+            QListWidget::item:hover {
+                background: #e7f0ec;
+                color: #1f2933;
+            }
+            QListWidget::item:selected {
+                background: #5fa08f;
+                color: #ffffff;
+            }
+            QListWidget::item:selected:active,
+            QListWidget::item:selected:!active {
+                background: #5fa08f;
+                color: #ffffff;
+            }
             QTableWidget::item {
                 padding: 6px;
+            }
+            QTableWidget::item:hover {
+                background: #e7f0ec;
+                color: #1f2933;
             }
             QTableWidget::item:selected {
                 background: #5fa08f;
                 color: #ffffff;
+            }
+            QTableWidget::item:selected:active,
+            QTableWidget::item:selected:!active {
+                background: #5fa08f;
+                color: #ffffff;
+            }
+            QTabWidget::pane {
+                border: 1px solid #d9dfd8;
+                border-radius: 6px;
+                background: #ffffff;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #eef0ed;
+                color: #1f2933;
+                border: 1px solid #d9dfd8;
+                border-bottom: 0;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                padding: 7px 12px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #5fa08f;
+                color: #ffffff;
+                border-color: #5fa08f;
+                font-weight: 700;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #e7f0ec;
+                color: #1f2933;
             }
             QProgressBar {
                 background: #eef0ed;

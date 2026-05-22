@@ -1,4 +1,4 @@
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QProgressBar,
     QScrollArea,
     QSpinBox,
     QVBoxLayout,
@@ -26,6 +27,7 @@ class AnnotationEditorDialog(QDialog):
         tool_callback,
         brush_size,
         brush_size_callback,
+        prediction_callback,
         save_callback,
         clear_callback,
         undo_callback,
@@ -34,9 +36,11 @@ class AnnotationEditorDialog(QDialog):
         self.refresh_callback = None
         self.current_image = None
         self.zoom = 1.0
+        self.is_busy = False
+        self.busy_controls = []
 
         self.setWindowTitle(f"Editar mascara - {image_name}")
-        self.resize(1180, 820)
+        self.resize(1320, 900)
         self.setModal(True)
 
         layout = QHBoxLayout(self)
@@ -55,7 +59,7 @@ class AnnotationEditorDialog(QDialog):
         )
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(860, 720)
+        self.preview_label.setMinimumSize(980, 780)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -75,30 +79,27 @@ class AnnotationEditorDialog(QDialog):
         overlay_button.setObjectName("mode")
         original_button.clicked.connect(lambda: view_callback("original"))
         overlay_button.clicked.connect(lambda: view_callback("overlay"))
+        self.busy_controls.extend([original_button, overlay_button])
         view_row.addWidget(original_button)
         view_row.addWidget(overlay_button)
         tools_layout.addLayout(view_row)
 
-        tool_grid = QGridLayout()
         contour_button = QPushButton("Contorno")
-        brush_button = QPushButton("Pincel")
         eraser_button = QPushButton("Borracha")
-        for button in [contour_button, brush_button, eraser_button]:
+        for button in [contour_button, eraser_button]:
             button.setObjectName("mode")
+            button.setVisible(False)
         contour_button.clicked.connect(lambda: tool_callback("contour"))
-        brush_button.clicked.connect(lambda: tool_callback("brush"))
         eraser_button.clicked.connect(lambda: tool_callback("eraser"))
         modal_brush_size = QSpinBox()
         modal_brush_size.setRange(1, 200)
         modal_brush_size.setValue(brush_size)
+        modal_brush_size.setVisible(False)
         modal_brush_size.valueChanged.connect(brush_size_callback)
-        tool_grid.addWidget(contour_button, 0, 0)
-        tool_grid.addWidget(brush_button, 0, 1)
-        tool_grid.addWidget(eraser_button, 1, 0)
-        tool_grid.addWidget(QLabel("Tamanho"), 2, 0)
-        tool_grid.addWidget(modal_brush_size, 2, 1)
-        tools_layout.addLayout(tool_grid)
+        tool_callback("contour")
 
+        predict_button = QPushButton("Gerar mascara automatica")
+        predict_button.clicked.connect(prediction_callback)
         save_button = QPushButton("Salvar mascara")
         save_button.setObjectName("primary")
         save_button.clicked.connect(save_callback)
@@ -108,12 +109,32 @@ class AnnotationEditorDialog(QDialog):
         undo_button.clicked.connect(undo_callback)
         close_button = QPushButton("Fechar")
         close_button.clicked.connect(self.accept)
+        self.busy_progress = QProgressBar()
+        self.busy_progress.setRange(0, 0)
+        self.busy_progress.setTextVisible(False)
+        self.busy_progress.setVisible(False)
+        self.busy_controls.extend([predict_button, save_button, clear_button, undo_button, close_button])
+        tools_layout.addWidget(predict_button)
         tools_layout.addWidget(save_button)
         tools_layout.addWidget(clear_button)
         tools_layout.addWidget(undo_button)
+        tools_layout.addWidget(self.busy_progress)
         tools_layout.addStretch()
         tools_layout.addWidget(close_button)
         layout.addWidget(tools_box, 0)
+
+    def set_busy(self, busy):
+        self.is_busy = busy
+        self.preview_label.setEnabled(not busy)
+        self.busy_progress.setVisible(busy)
+        for widget in self.busy_controls:
+            widget.setEnabled(not busy)
+
+    def closeEvent(self, event):
+        if self.is_busy:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def set_refresh_callback(self, callback):
         self.refresh_callback = callback
@@ -124,6 +145,19 @@ class AnnotationEditorDialog(QDialog):
 
     def reset_zoom(self):
         self.zoom = 1.0
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.refresh_fit_to_view)
+
+    def refresh_fit_to_view(self):
+        if self.current_image is None:
+            return
+        self.reset_zoom()
+        if self.refresh_callback:
+            self.refresh_callback()
+        else:
+            self._set_preview_pixmap(self.current_image)
 
     def zoom_preview(self, delta, source_label=None, x=None, y=None):
         if self.current_image is None:
