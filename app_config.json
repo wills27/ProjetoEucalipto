@@ -1,15 +1,13 @@
 {
-  "active_project": "eucalipto",
+  "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "cpsam_vasos_eucalipto_v1",
+  "active_model": "carol9",
   "padding_pixels": 64,
-  "diameter": 45.0,
+  "diameter": 50.0,
   "cellprob_threshold": 0.0,
   "flow_threshold": 0.4,
-  "test_images_dir": "data/test/images",
+  "test_images_dir": "data\\test\\images",
   "test_masks_dir": "data/test/masks",
-  "predictions_dir": "outputs\\cpsam_vasos_eucalipto_v1\\predictions",
-  "overlays_dir": "outputs\\cpsam_vasos_eucalipto_v1\\overlays",
   "calibration": {
     "unit": "um",
     "unit_per_pixel": 0.0,
@@ -17,5 +15,6 @@
     "real_distance": 0.0,
     "source": "",
     "source_image": ""
-  }
+  },
+  "import_results_grayscale": true
 }

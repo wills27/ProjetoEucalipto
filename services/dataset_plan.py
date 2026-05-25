@@ -24,16 +24,16 @@ def summarize_table_entries(entries):
     selected = 0
     valid = 0
     problems = 0
-    groups = {"train": 0, "val": 0, "test": 0, "auto": 0}
+    groups = {"uncategorized": 0, "train": 0, "val": 0, "test": 0, "auto": 0}
 
     for entry in entries:
-        if entry.get("status") == "OK":
+        if entry.get("status") in {"OK", "Com mascara"}:
             valid += 1
         else:
             problems += 1
         if entry.get("include"):
             selected += 1
-            group = entry.get("group", "auto")
+            group = entry.get("group", "uncategorized")
             groups[group] = groups.get(group, 0) + 1
 
     return {
@@ -49,7 +49,7 @@ def auto_split_indices(entries, seed=42, train_ratio=0.7, val_ratio=0.15):
     rows = [
         index
         for index, entry in enumerate(entries)
-        if entry.get("status") == "OK" and entry.get("include")
+        if entry.get("status") in {"OK", "Com mascara"} and entry.get("include")
     ]
     random.seed(seed)
     random.shuffle(rows)

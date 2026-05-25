@@ -35,7 +35,10 @@ class AnnotationEditorDialog(QDialog):
         super().__init__(parent)
         self.refresh_callback = None
         self.current_image = None
+        self.current_pixmap = None
         self.zoom = 1.0
+        self.view_callback = view_callback
+        self.view_mode = "overlay"
         self.is_busy = False
         self.busy_controls = []
 
@@ -77,8 +80,13 @@ class AnnotationEditorDialog(QDialog):
         original_button.setObjectName("mode")
         overlay_button = QPushButton("Overlay")
         overlay_button.setObjectName("mode")
-        original_button.clicked.connect(lambda: view_callback("original"))
-        overlay_button.clicked.connect(lambda: view_callback("overlay"))
+        self.view_buttons = {
+            "original": original_button,
+            "overlay": overlay_button,
+        }
+        original_button.clicked.connect(lambda: self.set_view_mode("original"))
+        overlay_button.clicked.connect(lambda: self.set_view_mode("overlay"))
+        self.update_view_buttons()
         self.busy_controls.extend([original_button, overlay_button])
         view_row.addWidget(original_button)
         view_row.addWidget(overlay_button)
@@ -130,6 +138,27 @@ class AnnotationEditorDialog(QDialog):
         for widget in self.busy_controls:
             widget.setEnabled(not busy)
 
+    def set_view_mode(self, mode):
+        self.view_mode = "overlay" if mode == "overlay" else "original"
+        self.view_callback(self.view_mode)
+        self.update_view_buttons()
+
+    def toggle_overlay(self):
+        self.set_view_mode("original" if self.view_mode == "overlay" else "overlay")
+
+    def update_view_buttons(self):
+        for mode, button in self.view_buttons.items():
+            button.setProperty("active", mode == self.view_mode)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_X and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            self.toggle_overlay()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def closeEvent(self, event):
         if self.is_busy:
             event.ignore()
@@ -141,7 +170,16 @@ class AnnotationEditorDialog(QDialog):
 
     def set_image(self, image):
         self.current_image = image.convert("RGB")
-        self._set_preview_pixmap(self.current_image)
+        width, height = self.current_image.size
+        qimage = QImage(
+            self.current_image.tobytes(),
+            width,
+            height,
+            width * 3,
+            QImage.Format.Format_RGB888,
+        ).copy()
+        self.current_pixmap = QPixmap.fromImage(qimage)
+        self._set_preview_pixmap()
 
     def reset_zoom(self):
         self.zoom = 1.0
@@ -157,7 +195,7 @@ class AnnotationEditorDialog(QDialog):
         if self.refresh_callback:
             self.refresh_callback()
         else:
-            self._set_preview_pixmap(self.current_image)
+            self._set_preview_pixmap()
 
     def zoom_preview(self, delta, source_label=None, x=None, y=None):
         if self.current_image is None:
@@ -172,10 +210,7 @@ class AnnotationEditorDialog(QDialog):
 
         factor = 1.15 if delta > 0 else 1 / 1.15
         self.zoom = max(0.2, min(8.0, self.zoom * factor))
-        if self.refresh_callback:
-            self.refresh_callback()
-        else:
-            self._set_preview_pixmap(self.current_image)
+        self._set_preview_pixmap()
 
         if point is not None and viewport_x is not None and viewport_y is not None:
             scale = getattr(self.preview_label, "_display_scale", 1.0)
@@ -203,20 +238,20 @@ class AnnotationEditorDialog(QDialog):
             return None
         return image_x, image_y
 
-    def _set_preview_pixmap(self, image):
-        width, height = image.size
-        qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
-        source_pixmap = QPixmap.fromImage(qimage)
+    def _set_preview_pixmap(self):
+        if self.current_image is None or self.current_pixmap is None:
+            return
+        width, height = self.current_image.size
         viewport_size = self.scroll_area.viewport().size()
         fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
         scale = max(0.05, fit_scale * self.zoom)
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
-        pixmap = source_pixmap.scaled(
+        pixmap = self.current_pixmap.scaled(
             target_width,
             target_height,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+            Qt.TransformationMode.FastTransformation,
         )
         self.preview_label.setMinimumSize(pixmap.size())
         self.preview_label.resize(pixmap.size())

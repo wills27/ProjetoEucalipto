@@ -11,7 +11,7 @@ import traceback
 import numpy as np
 import tifffile as tiff
 from PIL import Image, ImageDraw, ImageFont
-from PyQt6.QtCore import QProcess, QTimer, Qt
+from PyQt6.QtCore import QObject, QProcess, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QImage, QKeySequence, QPixmap
 from services.config import load_config, save_config
 from services.cell_measurements import (
@@ -52,6 +52,7 @@ from ui.widgets import AnnotationPreviewLabel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -85,6 +86,169 @@ from skimage.segmentation import find_boundaries
 
 
 IMAGE_EXTENSIONS = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+
+
+def conversion_row_for_image_path(image_path):
+    seg_path = image_path.with_name(f"{image_path.stem}_seg.npy")
+    tif_mask_path = image_path.with_name(f"{image_path.stem}_masks.tif")
+    tiff_mask_path = image_path.with_name(f"{image_path.stem}_masks.tiff")
+    mask_path = tif_mask_path if tif_mask_path.exists() else tiff_mask_path
+    had_mask_file = seg_path.exists() or mask_path.exists()
+    validation = validate_mask_file(seg_path, mask_path)
+    has_mask = validation["valid"]
+    removed_invalid_mask = False
+    if had_mask_file and not has_mask and validation["status"] in {"Mascara vazia", "Mascara pequena"}:
+        for path in {seg_path, tif_mask_path, tiff_mask_path}:
+            if path.exists():
+                try:
+                    path.unlink()
+                    removed_invalid_mask = True
+                except OSError:
+                    pass
+        mask_path = tif_mask_path if tif_mask_path.exists() else tiff_mask_path
+        validation = validate_mask_file(seg_path, mask_path)
+        has_mask = validation["valid"]
+    status = "Com mascara" if has_mask else "Sem mascara"
+    return {
+        "image": image_path.name,
+        "status": status,
+        "image_path": str(image_path),
+        "seg_path": str(seg_path),
+        "tif_mask_path": str(mask_path),
+        "mask_pixels": validation["pixel_count"],
+        "mask_objects": validation["object_count"],
+        "removed_invalid_mask": removed_invalid_mask,
+        "validation_status": validation["status"],
+    }
+
+
+class FileCopyWorker(QObject):
+    finished = pyqtSignal(int, int, str, list)
+    progress = pyqtSignal(int, int, str)
+
+    def __init__(self, files, target_dir):
+        super().__init__()
+        self.files = files
+        self.target_dir = Path(target_dir)
+
+    def run(self):
+        copied = 0
+        skipped = 0
+        last_model_name = ""
+        errors = []
+        file_sizes = {}
+        total_bytes = 0
+
+        for file_name in self.files:
+            source_path = Path(file_name)
+            try:
+                if source_path.is_file():
+                    size = source_path.stat().st_size
+                    file_sizes[str(source_path)] = size
+                    total_bytes += size
+            except OSError:
+                continue
+
+        total_bytes = max(1, total_bytes)
+        copied_bytes = 0
+
+        try:
+            self.target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            errors.append(f"{self.target_dir}: {exc}")
+            self.finished.emit(copied, skipped, last_model_name, errors)
+            return
+
+        for file_name in self.files:
+            source_path = Path(file_name)
+            if not source_path.is_file():
+                skipped += 1
+                continue
+
+            source_size = file_sizes.get(str(source_path), 0)
+            destination_path = self.target_dir / source_path.name
+            if destination_path.exists():
+                skipped += 1
+                copied_bytes += source_size
+                self.progress.emit(min(copied_bytes, total_bytes), total_bytes, source_path.name)
+                continue
+
+            try:
+                with source_path.open("rb") as source_file, destination_path.open("wb") as destination_file:
+                    while True:
+                        chunk = source_file.read(4 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        destination_file.write(chunk)
+                        copied_bytes += len(chunk)
+                        self.progress.emit(min(copied_bytes, total_bytes), total_bytes, source_path.name)
+                shutil.copystat(source_path, destination_path)
+            except OSError as exc:
+                errors.append(f"{source_path.name}: {exc}")
+                if destination_path.exists():
+                    try:
+                        destination_path.unlink()
+                    except OSError:
+                        pass
+                continue
+
+            copied += 1
+            last_model_name = destination_path.name
+
+        self.finished.emit(copied, skipped, last_model_name, errors)
+
+
+class DatasetScanWorker(QObject):
+    finished = pyqtSignal(list, str)
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = dict(config)
+
+    def run(self):
+        try:
+            input_dir = conversion_input_dir(self.config)
+            input_dir.mkdir(parents=True, exist_ok=True)
+            image_files = []
+            for ext in IMAGE_EXTENSIONS:
+                image_files.extend(input_dir.glob(f"*{ext}"))
+
+            image_files = sorted(
+                path
+                for path in image_files
+                if not path.stem.endswith("_masks") and not path.stem.endswith("_pred_mask")
+            )
+            rows = [conversion_row_for_image_path(image_path) for image_path in image_files]
+            self.finished.emit(rows, "")
+        except Exception as exc:
+            self.finished.emit([], str(exc))
+
+
+class DatasetPairsTable(QTableWidget):
+    def __init__(self, delete_callback, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.delete_callback = delete_callback
+
+    def contextMenuEvent(self, event):
+        row = self.rowAt(event.pos().y())
+        if row < 0:
+            super().contextMenuEvent(event)
+            return
+
+        self.selectRow(row)
+        menu = QMenu(self)
+        delete_action = menu.addAction("Deletar")
+        chosen_action = menu.exec(event.globalPos())
+        if chosen_action == delete_action and self.delete_callback:
+            self.delete_callback()
+        event.accept()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete and self.delete_callback:
+            self.delete_callback()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class ErrorDialog(QDialog):
@@ -634,6 +798,13 @@ class CellposeWindow(QMainWindow):
         self.pending_result_stems = None
         self.auto_measure_after_evaluation = False
         self.training_dialog = None
+        self.model_import_thread = None
+        self.model_import_worker = None
+        self.dataset_scan_thread = None
+        self.dataset_scan_worker = None
+        self.bulk_updating_dataset_groups = False
+        self.deferred_startup_steps = []
+        self.deferred_startup_total = 0
 
         self.setWindowTitle("Cellpose - Vasos de Eucalipto")
         self.resize(1320, 820)
@@ -643,7 +814,8 @@ class CellposeWindow(QMainWindow):
         self.build_ui()
         self.training_timer = QTimer(self)
         self.training_timer.timeout.connect(self.update_training_elapsed)
-        self.refresh_all()
+        self.refresh_startup_shell()
+        QTimer.singleShot(0, self.begin_deferred_startup_refresh)
 
     def build_menu(self):
         menu_bar = self.menuBar()
@@ -657,6 +829,7 @@ class CellposeWindow(QMainWindow):
         project_menu = menu_bar.addMenu("Projeto")
         self.add_menu_action(project_menu, "Criar projeto", self.create_project, "Ctrl+N")
         self.add_menu_action(project_menu, "Pasta de projetos", self.choose_projects_folder)
+        self.add_menu_action(project_menu, "Compactar mascaras", self.run_mask_compaction)
         self.add_menu_action(project_menu, "Calibracao", self.open_calibration_dialog)
 
         model_menu = menu_bar.addMenu("Modelo")
@@ -719,6 +892,15 @@ class CellposeWindow(QMainWindow):
         self.log_text.setReadOnly(True)
         self.log_text.hide()
 
+        self.task_progress_label = QLabel()
+        self.task_progress_bar = QProgressBar()
+        self.task_progress_bar.setFixedWidth(220)
+        self.task_progress_bar.setTextVisible(True)
+        self.task_progress_label.hide()
+        self.task_progress_bar.hide()
+        self.statusBar().addPermanentWidget(self.task_progress_label)
+        self.statusBar().addPermanentWidget(self.task_progress_bar)
+
         self.set_page(0)
         self.apply_style()
 
@@ -737,16 +919,16 @@ class CellposeWindow(QMainWindow):
         self.home_model_combo.currentIndexChanged.connect(self.on_home_model_changed)
         project_layout.addWidget(QLabel("Projeto"), 0, 0)
         project_layout.addWidget(self.project_combo, 0, 1)
-        project_layout.addWidget(QLabel("Modelo"), 0, 2)
-        project_layout.addWidget(self.home_model_combo, 0, 3)
-        project_actions = QHBoxLayout()
-        self.add_button(project_actions, "Criar projeto", self.create_project)
-        self.add_button(project_actions, "Pasta de projetos", self.choose_projects_folder)
-        self.add_button(project_actions, "Treinar modelo", self.open_training_dialog)
-        project_actions.addStretch()
-        project_layout.addLayout(project_actions, 0, 4)
+        create_project_button = QPushButton("Criar projeto")
+        create_project_button.clicked.connect(self.create_project)
+        project_layout.addWidget(create_project_button, 0, 2)
+        project_layout.addWidget(QLabel("Modelo"), 0, 3)
+        project_layout.addWidget(self.home_model_combo, 0, 4)
+        import_model_button = QPushButton("Importar modelo")
+        import_model_button.clicked.connect(self.import_prediction_model)
+        project_layout.addWidget(import_model_button, 0, 5)
         project_layout.setColumnStretch(1, 1)
-        project_layout.setColumnStretch(3, 1)
+        project_layout.setColumnStretch(4, 1)
         layout.addWidget(project_box)
 
         self.build_dataset_section(layout, show_import_actions=False)
@@ -766,15 +948,46 @@ class CellposeWindow(QMainWindow):
         self.dataset_calibration_label = QLabel("Calibracao: nao definida")
         self.dataset_calibration_label.setObjectName("hint")
         table_layout.addWidget(self.dataset_calibration_label)
-        self.dataset_pairs_table = QTableWidget(0, 5)
-        self.dataset_pairs_table.setHorizontalHeaderLabels(["Usar", "Grupo", "Imagem", "Segmentacao", "Status"])
+        filters_layout = QHBoxLayout()
+        self.dataset_filter = QLineEdit()
+        self.dataset_filter.setPlaceholderText("Buscar por numero ou nome")
+        self.dataset_filter.textChanged.connect(self.apply_dataset_filter)
+        self.dataset_status_filter = QComboBox()
+        self.dataset_status_filter.addItem("Status: todos", "")
+        self.dataset_status_filter.addItem("Com mascara", "Com mascara")
+        self.dataset_status_filter.addItem("Sem mascara", "Sem mascara")
+        self.dataset_status_filter.currentIndexChanged.connect(self.apply_dataset_filter)
+        self.dataset_group_filter = QComboBox()
+        self.dataset_group_filter.addItem("Grupo: todos", "")
+        self.dataset_group_filter.addItem("Sem categoria", "uncategorized")
+        self.dataset_group_filter.addItem("Auto", "auto")
+        self.dataset_group_filter.addItem("Treino", "train")
+        self.dataset_group_filter.addItem("Validacao", "val")
+        self.dataset_group_filter.addItem("Teste", "test")
+        self.dataset_group_filter.currentIndexChanged.connect(self.apply_dataset_filter)
+        self.dataset_include_filter = QComboBox()
+        self.dataset_include_filter.addItem("Uso: todos", "")
+        self.dataset_include_filter.addItem("Selecionadas", "selected")
+        self.dataset_include_filter.addItem("Nao selecionadas", "unselected")
+        self.dataset_include_filter.currentIndexChanged.connect(self.apply_dataset_filter)
+        clear_filter_button = QPushButton("Limpar filtros")
+        clear_filter_button.clicked.connect(self.clear_dataset_filters)
+        filters_layout.addWidget(self.dataset_filter, 1)
+        filters_layout.addWidget(self.dataset_status_filter)
+        filters_layout.addWidget(self.dataset_group_filter)
+        filters_layout.addWidget(self.dataset_include_filter)
+        filters_layout.addWidget(clear_filter_button)
+        table_layout.addLayout(filters_layout)
+        self.dataset_pairs_table = DatasetPairsTable(self.delete_selected_dataset_pair, 0, 5)
+        self.dataset_pairs_table.setHorizontalHeaderLabels(["#", "Usar", "Grupo", "Imagem", "Status"])
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.verticalHeader().setVisible(False)
         self.dataset_pairs_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.dataset_pairs_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.dataset_pairs_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.dataset_pairs_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.dataset_pairs_table.itemChanged.connect(self.save_dataset_plan_from_table)
         self.dataset_pairs_table.currentCellChanged.connect(self.on_dataset_pair_current_cell_changed)
@@ -785,6 +998,15 @@ class CellposeWindow(QMainWindow):
         self.add_button(validation_actions, "Padronizar TIFF", self.convert_dataset_images_to_tif)
         self.add_button(validation_actions, "Recarregar tabela", self.refresh_dataset_import)
         self.add_button(validation_actions, "Separar treino/teste", self.auto_split_dataset_table)
+        self.dataset_move_group_combo = QComboBox()
+        self.dataset_move_group_combo.addItem("Sem categoria", "uncategorized")
+        self.dataset_move_group_combo.addItem("Auto", "auto")
+        self.dataset_move_group_combo.addItem("Treino", "train")
+        self.dataset_move_group_combo.addItem("Validacao", "val")
+        self.dataset_move_group_combo.addItem("Teste", "test")
+        validation_actions.addWidget(QLabel("Mover selecionadas para"))
+        validation_actions.addWidget(self.dataset_move_group_combo)
+        self.add_button(validation_actions, "Aplicar grupo", self.move_selected_dataset_rows_to_group)
         validation_actions.addStretch()
         table_layout.addLayout(validation_actions)
         validation_layout.addLayout(table_layout, 1)
@@ -806,6 +1028,14 @@ class CellposeWindow(QMainWindow):
         )
         self.dataset_preview_info.setObjectName("hint")
         self.dataset_preview_info.setWordWrap(True)
+        prediction_params = QGridLayout()
+        prediction_params.setContentsMargins(0, 0, 0, 0)
+        prediction_params.setHorizontalSpacing(8)
+        self.dataset_prediction_diameter = QLineEdit(str(self.config["diameter"]))
+        self.dataset_prediction_diameter.setFixedWidth(96)
+        prediction_params.addWidget(QLabel("Diametro da predicao"), 0, 0)
+        prediction_params.addWidget(self.dataset_prediction_diameter, 0, 1)
+        prediction_params.setColumnStretch(2, 1)
         preview_actions = QHBoxLayout()
         self.dataset_predict_mask_button = self.add_button(
             preview_actions,
@@ -824,6 +1054,7 @@ class CellposeWindow(QMainWindow):
         self.dataset_mask_progress.setTextVisible(False)
         self.dataset_mask_progress.setVisible(False)
         preview_layout.addWidget(self.dataset_preview_label, 1)
+        preview_layout.addLayout(prediction_params)
         preview_layout.addLayout(preview_actions)
         preview_layout.addWidget(self.dataset_mask_progress)
         preview_layout.addWidget(self.dataset_preview_info)
@@ -1094,8 +1325,21 @@ class CellposeWindow(QMainWindow):
         self.results_list_status.setObjectName("hint")
         self.results_list_status.setWordWrap(True)
         left_layout.addWidget(self.results_list_status)
-        self.add_button(left_layout, "Recarregar imagens", self.refresh_analysis_images)
-        self.add_button(left_layout, "Remover imagem", self.remove_selected_result_image)
+        import_filter_layout = QHBoxLayout()
+        self.result_import_skip_keyword = QLineEdit()
+        self.result_import_skip_keyword.setPlaceholderText("Ignorar se contem palavra")
+        self.result_import_grayscale = QCheckBox("Converter para cinza")
+        self.result_import_grayscale.setChecked(bool(self.config.get("import_results_grayscale", False)))
+        import_filter_layout.addWidget(self.result_import_skip_keyword, 1)
+        import_filter_layout.addWidget(self.result_import_grayscale)
+        left_layout.addLayout(import_filter_layout)
+        result_actions = QHBoxLayout()
+        self.add_button(result_actions, "Importar imagens", self.import_prediction_image_files)
+        self.add_button(result_actions, "Importar pasta", self.import_prediction_image_folder)
+        self.add_button(result_actions, "Recarregar imagens", self.refresh_analysis_images)
+        self.add_button(result_actions, "Remover imagem", self.remove_selected_result_image)
+        result_actions.addStretch()
+        left_layout.addLayout(result_actions)
         left_column.addWidget(left, 1)
         layout.addLayout(left_column, 0)
 
@@ -1324,6 +1568,31 @@ class CellposeWindow(QMainWindow):
             ],
         )
 
+    def run_mask_compaction(self):
+        if self.process is not None:
+            self.show_process_in_progress()
+            return
+        reply = QMessageBox.question(
+            self,
+            "Compactar mascaras",
+            (
+                "Converter _seg.npy para _masks.tif comprimido e remover os .npy duplicados?\n\n"
+                "O processo valida cada TIFF antes de apagar o arquivo .npy correspondente."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.run_script(
+            "Compactar mascaras",
+            [
+                str(SCRIPTS_DIR / "compact_masks.py"),
+                "--project-dir",
+                str(active_project_dir(self.config)),
+            ],
+        )
+
     def run_training(self):
         model_name = self.train_model_name.text().strip()
         if not model_name:
@@ -1457,7 +1726,7 @@ class CellposeWindow(QMainWindow):
             self.run_results(missing_predictions)
             return
 
-        missing_overlay = [stem for stem in entries if not self.result_overlay_exists(stem)]
+        missing_overlay = [stem for stem in entries if not self.result_overlay_exists(stem, preferred_only=True)]
         missing_metrics = [stem for stem in entries if not self.result_metrics_exists(stem)]
 
         created_overlays, skipped_overlays = self.create_missing_result_overlays(missing_overlay)
@@ -1497,19 +1766,15 @@ class CellposeWindow(QMainWindow):
         created = 0
         skipped = 0
         for stem in image_stems:
-            image_path = self.result_image_path(stem)
             pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
-            if image_path is None or not image_path.exists() or not pred_path.exists():
+            if not pred_path.exists():
                 skipped += 1
                 continue
-            base_image = self.load_image_as_rgb(image_path)
             mask = self.load_mask_array(pred_path)
             if mask is None:
                 skipped += 1
                 continue
-            overlay = self.overlay_colored_mask_on_image(base_image, mask)
-            overlay_path = overlays_dir(self.config) / f"{stem}_overlay_pred.tif"
-            tiff.imwrite(overlay_path, np.asarray(overlay), photometric="rgb")
+            self.save_result_overlay(stem, mask)
             created += 1
         return created, skipped
 
@@ -1518,6 +1783,10 @@ class CellposeWindow(QMainWindow):
         dialog.exec()
 
     def import_prediction_model(self):
+        if self.model_import_thread is not None:
+            QMessageBox.information(self, "Importar modelo", "A importacao de modelo ainda esta em andamento.")
+            return
+
         files, _filter = QFileDialog.getOpenFileNames(
             self,
             "Escolher modelos para importar",
@@ -1528,23 +1797,32 @@ class CellposeWindow(QMainWindow):
             return
 
         target_dir = project_models_dir(self.config)
-        target_dir.mkdir(parents=True, exist_ok=True)
+        self.append_log(
+            f"\n>>> Importar modelos\n"
+            f"Destino: {target_dir}\n"
+            f"Arquivos selecionados: {len(files)}\n"
+        )
+        self.start_task_progress("Importar modelo", detail="Importando modelo...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        copied = 0
-        skipped = 0
-        last_model_name = None
-        for file_name in files:
-            source_path = Path(file_name)
-            if not source_path.is_file():
-                continue
-            destination_path = target_dir / source_path.name
-            if destination_path.exists():
-                skipped += 1
-                continue
-            shutil.copy2(source_path, destination_path)
-            copied += 1
-            last_model_name = destination_path.name
+        self.model_import_thread = QThread(self)
+        self.model_import_worker = FileCopyWorker(files, target_dir)
+        self.model_import_worker.moveToThread(self.model_import_thread)
+        self.model_import_thread.started.connect(self.model_import_worker.run)
+        self.model_import_worker.progress.connect(
+            lambda current, total, name: self.update_task_progress(
+                current,
+                total,
+                f"Importando modelo: {name}",
+            )
+        )
+        self.model_import_worker.finished.connect(self.finish_model_import)
+        self.model_import_worker.finished.connect(self.model_import_thread.quit)
+        self.model_import_worker.finished.connect(self.model_import_worker.deleteLater)
+        self.model_import_thread.finished.connect(self.model_import_thread.deleteLater)
+        self.model_import_thread.start()
 
+    def finish_model_import(self, copied, skipped, last_model_name, errors):
         if last_model_name:
             self.config["active_model"] = last_model_name
             self.config["predictions_dir"] = relative_to_project(predictions_dir(self.config), self.config)
@@ -1552,94 +1830,211 @@ class CellposeWindow(QMainWindow):
             save_config(self.config)
 
         self.append_log(
-            f"\n>>> Importar modelos\n"
-            f"Destino: {target_dir}\n"
             f"Copiados: {copied}\n"
             f"Pulados por ja existirem: {skipped}\n"
         )
-        self.refresh_all()
+        QApplication.restoreOverrideCursor()
+        self.finish_task_progress("Importacao de modelo finalizada.", success=not errors)
+        self.model_import_thread = None
+        self.model_import_worker = None
+        self.refresh_project()
+        self.refresh_prediction()
 
-    def import_prediction_images(self):
+        if errors:
+            self.append_log("Erros:\n" + "\n".join(errors) + "\n")
+            QMessageBox.warning(
+                self,
+                "Importar modelo",
+                "Alguns modelos nao puderam ser importados:\n\n" + "\n".join(errors[:8]),
+            )
+
+    def import_prediction_image_files(self):
+        files, _filter = QFileDialog.getOpenFileNames(
+            self,
+            "Escolher imagens para resultados",
+            str(PROJECT_DIR),
+            "Imagens (*.tif *.tiff *.png *.jpg *.jpeg *.bmp *.webp *.gif);;Todos os arquivos (*.*)",
+        )
+        if not files:
+            return
+        self.import_prediction_images_from_paths([Path(file_name) for file_name in files], "Arquivos selecionados")
+
+    def import_prediction_image_folder(self):
         source = QFileDialog.getExistingDirectory(self, "Escolher pasta com imagens", str(PROJECT_DIR))
         if not source:
             return
 
         source_dir = Path(source)
+        keyword = self.prediction_import_skip_keyword()
+        image_paths = []
+        for root, dirs, files in os.walk(source_dir):
+            dirs[:] = [
+                dirname
+                for dirname in dirs
+                if not self.path_matches_prediction_import_keyword(Path(root) / dirname, keyword)
+            ]
+            for file_name in files:
+                source_path = Path(root) / file_name
+                if self.path_matches_prediction_import_keyword(source_path, keyword):
+                    continue
+                image_paths.append(source_path)
+
+        self.import_prediction_images_from_paths(image_paths, str(source_dir), source_root=source_dir)
+
+    def prediction_import_skip_keyword(self):
+        if not hasattr(self, "result_import_skip_keyword"):
+            return ""
+        return self.result_import_skip_keyword.text().strip().lower()
+
+    def path_matches_prediction_import_keyword(self, path, keyword):
+        return bool(keyword and keyword in str(path).lower())
+
+    def prediction_import_grayscale_enabled(self):
+        return bool(
+            hasattr(self, "result_import_grayscale")
+            and self.result_import_grayscale.isChecked()
+        )
+
+    def image_array_to_grayscale(self, array):
+        array = np.asarray(array)
+        if array.ndim < 3:
+            return array
+        if array.shape[-1] >= 3:
+            rgb = array[..., :3].astype(np.float32)
+            gray = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
+            if np.issubdtype(array.dtype, np.integer):
+                gray = np.clip(gray, np.iinfo(array.dtype).min, np.iinfo(array.dtype).max)
+                return gray.astype(array.dtype)
+            return gray.astype(array.dtype)
+        return np.squeeze(array)
+
+    def import_prediction_images_from_paths(self, paths, source_label, source_root=None):
         target_dir = project_path(self.pred_input.text().strip() or self.config["test_images_dir"], self.config)
         target_dir.mkdir(parents=True, exist_ok=True)
+        keyword = self.prediction_import_skip_keyword()
+        convert_to_grayscale = self.prediction_import_grayscale_enabled()
+        source_root = Path(source_root) if source_root else None
+        supported_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}
 
         copied = 0
         converted = 0
         skipped = 0
         errors = []
+        image_candidates = []
 
-        image_candidates = {}
-
-        for src in sorted(source_dir.iterdir()):
+        for src in sorted({Path(path) for path in paths}, key=lambda path: str(path).lower()):
             if not src.is_file():
+                skipped += 1
                 continue
-            if src.stem.endswith("_masks") or src.stem.endswith("_pred_mask") or src.name.endswith("_seg.npy"):
+            if self.path_matches_prediction_import_keyword(src, keyword):
+                skipped += 1
                 continue
-
-            suffix = src.suffix.lower()
-            if suffix not in {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}:
+            if src.stem.endswith("_masks") or src.stem.endswith("_pred_mask") or src.stem.endswith("_pred_masks"):
+                skipped += 1
                 continue
-
-            current = image_candidates.get(src.stem)
-            if current is None:
-                image_candidates[src.stem] = src
-                continue
-
-            current_is_tif = current.suffix.lower() in {".tif", ".tiff"}
-            src_is_tif = suffix in {".tif", ".tiff"}
-            if src_is_tif and not current_is_tif:
-                image_candidates[src.stem] = src
-
-        for src in sorted(image_candidates.values()):
-            suffix = src.suffix.lower()
-            dst = target_dir / f"{src.stem}.tif"
-            if dst.exists():
+            if src.name.endswith("_seg.npy"):
                 skipped += 1
                 continue
 
-            if suffix == ".tif":
-                shutil.copy2(src, dst)
-                copied += 1
+            suffix = src.suffix.lower()
+            if suffix not in supported_extensions:
+                skipped += 1
                 continue
 
-            try:
-                if suffix == ".tiff":
-                    tiff.imwrite(dst, tiff.imread(src))
-                else:
-                    with Image.open(src) as image:
-                        if image.mode == "P":
-                            image = image.convert("RGB")
-                        tiff.imwrite(dst, np.asarray(image))
-                converted += 1
-            except Exception as exc:
-                skipped += 1
-                errors.append(f"{src}: {exc}")
+            image_candidates.append(src)
+
+        total = len(image_candidates)
+        self.start_task_progress("Importar imagens", total, "Importando imagens para resultados...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            used_destinations = set()
+            for index, src in enumerate(sorted(image_candidates, key=lambda path: str(path).lower()), start=1):
+                self.update_task_progress(index - 1, total, f"Importando {src.name}")
+                suffix = src.suffix.lower()
+                output_stem = self.prediction_import_output_stem(src, source_root)
+                dst = self.available_import_destination(target_dir, output_stem, used_destinations)
+                used_destinations.add(dst.name.lower())
+
+                try:
+                    if suffix == ".tif" and not convert_to_grayscale:
+                        shutil.copy2(src, dst)
+                        copied += 1
+                    elif suffix in {".tif", ".tiff"}:
+                        image_array = tiff.imread(src)
+                        if convert_to_grayscale:
+                            image_array = self.image_array_to_grayscale(image_array)
+                        tiff.imwrite(dst, image_array, compression="zlib")
+                        converted += 1
+                    else:
+                        with Image.open(src) as image:
+                            if convert_to_grayscale:
+                                image = image.convert("L")
+                            elif image.mode == "P":
+                                image = image.convert("RGB")
+                            tiff.imwrite(dst, np.asarray(image), compression="zlib")
+                        converted += 1
+                except Exception as exc:
+                    skipped += 1
+                    errors.append(f"{src}: {exc}")
+                QApplication.processEvents()
+        finally:
+            QApplication.restoreOverrideCursor()
 
         self.config["test_images_dir"] = relative_to_project(target_dir, self.config)
         self.config["predictions_dir"] = relative_to_project(predictions_dir(self.config), self.config)
         self.config["overlays_dir"] = relative_to_project(overlays_dir(self.config), self.config)
+        self.config["import_results_grayscale"] = convert_to_grayscale
         save_config(self.config)
 
         self.append_log(
-            f"\n>>> Importar imagens para predicao\n"
-            f"Origem: {source_dir}\n"
+            f"\n>>> Importar imagens para resultados\n"
+            f"Origem: {source_label}\n"
             f"Destino: {target_dir}\n"
+            f"Encontradas: {len(paths)}\n"
             f"Copiados: {copied}\n"
             f"Convertidos para TIFF: {converted}\n"
-            f"Pulados por ja existirem: {skipped}\n"
+            f"Cinza: {'sim' if convert_to_grayscale else 'nao'}\n"
+            f"Pulados/ignorados: {skipped}\n"
         )
+        self.finish_task_progress("Importacao de imagens finalizada.", success=not errors)
         if errors:
             self.show_error(
                 "Erro ao importar imagens",
                 f"{len(errors)} imagem(ns) nao puderam ser importadas.",
                 "\n".join(errors),
             )
-        self.refresh_all()
+        self.clear_result_indexes()
+        self.refresh_analysis_images()
+
+    def prediction_import_output_stem(self, source_path, source_root=None):
+        source_path = Path(source_path)
+        parts = []
+        if source_root is not None:
+            try:
+                relative_parent = source_path.parent.relative_to(source_root)
+                parts = [part for part in relative_parent.parts if part not in {"", "."}]
+            except ValueError:
+                parts = []
+        parts.append(source_path.stem)
+        return "_".join(self.clean_import_name_part(part) for part in parts if part)
+
+    def clean_import_name_part(self, value):
+        value = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+        value = re.sub(r"_+", "_", value).strip("._ ")
+        return value or "imagem"
+
+    def available_import_destination(self, target_dir, stem, used_destinations=None):
+        used_destinations = used_destinations or set()
+        destination = target_dir / f"{stem}.tif"
+        if not destination.exists() and destination.name.lower() not in used_destinations:
+            return destination
+
+        counter = 1
+        while True:
+            candidate = target_dir / f"{stem}_{counter}.tif"
+            if not candidate.exists() and candidate.name.lower() not in used_destinations:
+                return candidate
+            counter += 1
 
     def run_annotation_mask_prediction(self):
         if self.process is not None:
@@ -1767,6 +2162,8 @@ class CellposeWindow(QMainWindow):
         save_config(self.config)
 
     def save_annotation_prediction_config(self):
+        if hasattr(self, "dataset_prediction_diameter"):
+            self.annotation_page.diameter.setText(self.dataset_prediction_diameter.text().strip())
         self.annotation_page.save_model_parameters_to_config(self.config, self.parse_float)
         save_config(self.config)
 
@@ -1812,6 +2209,8 @@ class CellposeWindow(QMainWindow):
             self.start_training_progress()
         if title in self.result_process_titles:
             self.start_result_progress(title)
+        if title in {"Preparar dataset", "Compactar mascaras"}:
+            self.start_task_progress(title, detail=f"{title}...")
         self.append_log(f"\n>>> {title}\n")
         self.append_log(" ".join([sys.executable, "-u", *args]) + "\n")
 
@@ -1827,7 +2226,7 @@ class CellposeWindow(QMainWindow):
         self.process.errorOccurred.connect(self.process_error_occurred)
         self.process.finished.connect(self.process_finished)
         self.process.start()
-        if title != "Criar mascara" and title not in self.result_process_titles:
+        if title not in {"Criar mascara", "Preparar dataset", "Compactar mascaras"} and title not in self.result_process_titles:
             self.refresh_all()
         return True
 
@@ -1841,12 +2240,14 @@ class CellposeWindow(QMainWindow):
             self.capture_process_error(output)
             self.update_training_last_message(output)
             self.update_result_progress(output)
+            self.update_task_progress_from_output(output)
             self.update_result_status_from_output(output)
         if error:
             self.append_log(error)
             self.capture_process_error(error)
             self.update_training_last_message(error)
             self.update_result_progress(error)
+            self.update_task_progress_from_output(error)
             self.update_result_status_from_output(error)
 
     def process_finished(self, exit_code):
@@ -1857,6 +2258,19 @@ class CellposeWindow(QMainWindow):
             self.finish_result_progress(exit_code)
         if self.current_process_title == "Treinar modelo":
             self.finish_training_progress(exit_code)
+        if self.current_process_title == "Preparar dataset":
+            self.finish_task_progress(
+                "Dataset preparado." if exit_code == 0 else "Erro ao preparar dataset.",
+                success=exit_code == 0,
+            )
+        if self.current_process_title == "Compactar mascaras":
+            self.finish_task_progress(
+                "Mascaras compactadas." if exit_code == 0 else "Erro ao compactar mascaras.",
+                success=exit_code == 0,
+            )
+            if exit_code == 0:
+                self.clear_analysis_caches()
+                self.refresh_dataset_import()
         if self.current_process_title == "Criar mascara" and exit_code == 0:
             self.set_annotation_view_mode("overlay")
             if hasattr(self, "annotation_page") and self.pending_annotation_image_name:
@@ -1912,6 +2326,10 @@ class CellposeWindow(QMainWindow):
             self.finish_result_progress(1)
         if self.current_process_title == "Treinar modelo":
             self.finish_training_progress(1)
+        if self.current_process_title == "Preparar dataset":
+            self.finish_task_progress("Erro ao preparar dataset.", success=False)
+        if self.current_process_title == "Compactar mascaras":
+            self.finish_task_progress("Erro ao compactar mascaras.", success=False)
         self.pending_actions.clear()
         self.runtime_overlay_ready_stems.clear()
         self.runtime_metrics_ready_stems.clear()
@@ -1953,6 +2371,63 @@ class CellposeWindow(QMainWindow):
     def show_error(self, title, message, details=""):
         dialog = ErrorDialog(self, title, message, details)
         dialog.exec()
+
+    def start_task_progress(self, title, total=0, detail=""):
+        if not hasattr(self, "task_progress_bar"):
+            return
+        self.task_progress_label.setText(detail or title)
+        self.task_progress_label.show()
+        self.task_progress_bar.show()
+        if total > 0:
+            self.task_progress_bar.setRange(0, total)
+            self.task_progress_bar.setValue(0)
+            self.task_progress_bar.setFormat("%p%")
+        else:
+            self.task_progress_bar.setRange(0, 0)
+            self.task_progress_bar.setFormat("")
+        self.statusBar().showMessage(detail or title)
+
+    def update_task_progress(self, current, total, detail=""):
+        if not hasattr(self, "task_progress_bar"):
+            return
+        total = max(1, int(total))
+        current = min(max(0, int(current)), total)
+        self.task_progress_label.setText(detail or self.current_process_title or "Processando")
+        self.task_progress_label.show()
+        self.task_progress_bar.show()
+        self.task_progress_bar.setRange(0, total)
+        self.task_progress_bar.setValue(current)
+        self.task_progress_bar.setFormat(f"{int((current / total) * 100)}%")
+        if detail:
+            self.statusBar().showMessage(detail)
+
+    def finish_task_progress(self, message, success=True):
+        if not hasattr(self, "task_progress_bar"):
+            return
+        self.task_progress_bar.setRange(0, 100)
+        self.task_progress_bar.setValue(100 if success else 0)
+        self.task_progress_bar.setFormat("100%" if success else "Erro")
+        self.task_progress_label.setText(message)
+        self.statusBar().showMessage(message, 5000)
+        QTimer.singleShot(5000, self.hide_task_progress)
+
+    def hide_task_progress(self):
+        if not hasattr(self, "task_progress_bar"):
+            return
+        self.task_progress_label.hide()
+        self.task_progress_bar.hide()
+
+    def update_task_progress_from_output(self, text):
+        if self.current_process_title not in {"Preparar dataset", "Compactar mascaras"}:
+            return
+        for line in text.splitlines():
+            match = re.match(r"^PROGRESS\s+(\d+)\s+(\d+)\s*(.*)$", line.strip())
+            if not match:
+                continue
+            current = int(match.group(1))
+            total = int(match.group(2))
+            detail = match.group(3).strip() or "Preparando dataset"
+            self.update_task_progress(current, total, detail)
 
     def start_result_progress(self, title):
         if not hasattr(self, "result_progress_bar"):
@@ -2217,6 +2692,41 @@ class CellposeWindow(QMainWindow):
         self.refresh_measurement_tables()
         self.refresh_calibration_labels()
 
+    def refresh_startup_shell(self):
+        self.config = load_config()
+        ensure_project_structure(active_project_dir(self.config))
+        self.refresh_project_selector()
+        self.refresh_project()
+        self.refresh_prediction()
+        self.refresh_calibration_labels()
+        if hasattr(self, "dataset_validation_summary"):
+            self.dataset_validation_summary.setText("Carregando dataset...")
+        if hasattr(self, "results_list_status"):
+            self.results_list_status.setText("Carregando resultados...")
+        self.statusBar().showMessage("Abrindo projeto...")
+
+    def begin_deferred_startup_refresh(self):
+        self.deferred_startup_steps = [
+            ("Dataset", self.refresh_dataset_import),
+            ("Resultados", self.refresh_analysis_images),
+            ("Metricas", self.refresh_analysis_metrics),
+            ("Tabelas", self.refresh_measurement_tables),
+        ]
+        self.deferred_startup_total = len(self.deferred_startup_steps)
+        self.start_task_progress("Carregando projeto", total=self.deferred_startup_total, detail="Carregando projeto...")
+        QTimer.singleShot(50, self.run_next_deferred_startup_step)
+
+    def run_next_deferred_startup_step(self):
+        if not self.deferred_startup_steps:
+            self.finish_task_progress("Projeto carregado.", success=True)
+            return
+        done = self.deferred_startup_total - len(self.deferred_startup_steps)
+        label, callback = self.deferred_startup_steps.pop(0)
+        self.update_task_progress(done, self.deferred_startup_total, f"Carregando: {label}")
+        callback()
+        self.update_task_progress(done + 1, self.deferred_startup_total, f"Carregado: {label}")
+        QTimer.singleShot(50, self.run_next_deferred_startup_step)
+
     def refresh_project_selector(self):
         if not hasattr(self, "project_combo"):
             return
@@ -2236,6 +2746,9 @@ class CellposeWindow(QMainWindow):
     def refresh_dataset_import(self):
         if not hasattr(self, "dataset_pairs_table"):
             return
+        if self.dataset_scan_thread is not None:
+            self.dataset_validation_summary.setText("Carregando dataset...")
+            return
 
         input_dir = conversion_input_dir(self.config)
         input_dir.mkdir(parents=True, exist_ok=True)
@@ -2244,23 +2757,44 @@ class CellposeWindow(QMainWindow):
 
         selected_image = self.pending_annotation_image_name
         if selected_image is None and self.dataset_pairs_table.currentRow() >= 0:
-            current_item = self.dataset_pairs_table.item(self.dataset_pairs_table.currentRow(), 2)
+            current_item = self.dataset_pairs_table.item(self.dataset_pairs_table.currentRow(), 3)
             if current_item is not None:
                 selected_image = current_item.text()
 
+        self.pending_dataset_selected_image = selected_image
+        self.dataset_validation_summary.setText("Carregando dataset...")
+        self.dataset_scan_thread = QThread(self)
+        self.dataset_scan_worker = DatasetScanWorker(self.config)
+        self.dataset_scan_worker.moveToThread(self.dataset_scan_thread)
+        self.dataset_scan_thread.started.connect(self.dataset_scan_worker.run)
+        self.dataset_scan_worker.finished.connect(self.finish_dataset_scan)
+        self.dataset_scan_worker.finished.connect(self.dataset_scan_thread.quit)
+        self.dataset_scan_worker.finished.connect(self.dataset_scan_worker.deleteLater)
+        self.dataset_scan_thread.finished.connect(self.dataset_scan_thread.deleteLater)
+        self.dataset_scan_thread.start()
+
+    def finish_dataset_scan(self, rows, error):
+        self.dataset_scan_thread = None
+        self.dataset_scan_worker = None
+        if error:
+            self.dataset_validation_summary.setText(f"Erro ao carregar dataset:\n{error}")
+            return
+        self.populate_dataset_import(rows, getattr(self, "pending_dataset_selected_image", None))
+
+    def populate_dataset_import(self, rows, selected_image=None):
+        input_dir = conversion_input_dir(self.config)
         plan = self.load_dataset_plan()
-        all_rows = self.scan_conversion_input()
-        rows = all_rows
-        image_count = len(all_rows)
-        valid_count = sum(1 for row in all_rows if row["status"] == "OK")
-        missing_count = sum(1 for row in all_rows if row["status"] == "Sem mascara")
+        image_count = len(rows)
+        valid_count = sum(1 for row in rows if row["status"] == "Com mascara")
+        missing_count = sum(1 for row in rows if row["status"] == "Sem mascara")
         invalid_count = image_count - valid_count - missing_count
+        removed_invalid_count = sum(1 for row in rows if row.get("removed_invalid_mask"))
         seg_count = len(list(input_dir.glob("*_seg.npy")))
         tif_mask_count = len(list(input_dir.glob("*_masks.tif"))) + len(list(input_dir.glob("*_masks.tiff")))
         selected_count = sum(
             1
             for row in rows
-            if row["status"] in {"OK", "Sem mascara"} and plan.get(row["image"], {}).get("include", True)
+            if row["status"] in {"Com mascara", "Sem mascara"} and plan.get(row["image"], {}).get("include", True)
         )
 
         self.dataset_validation_summary.setText(
@@ -2269,16 +2803,23 @@ class CellposeWindow(QMainWindow):
             f"Pares validos: {valid_count}\n"
             f"Selecionadas: {selected_count}\n"
             f"Sem mascara: {missing_count}\n"
-            f"Mascaras invalidas: {invalid_count}"
+            f"Mascaras removidas: {removed_invalid_count}\n"
+            f"Outros status: {invalid_count}"
         )
 
         self.dataset_pairs_table.blockSignals(True)
         self.dataset_pairs_table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             saved = plan.get(row["image"], {})
-            can_include = row["status"] in {"OK", "Sem mascara"}
+            can_include = row["status"] in {"Com mascara", "Sem mascara"}
             include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
-            group = "test" if row["status"] == "Sem mascara" else saved.get("group", "auto")
+            group = saved.get("group", "uncategorized")
+
+            number_item = QTableWidgetItem(str(row_index + 1))
+            number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            number_item.setData(Qt.ItemDataRole.UserRole, row)
+            self.dataset_pairs_table.setItem(row_index, 0, number_item)
 
             include_item = QTableWidgetItem()
             include_item.setFlags(include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -2286,10 +2827,11 @@ class CellposeWindow(QMainWindow):
                 include_item.setFlags(include_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             include_item.setCheckState(Qt.CheckState.Checked if include else Qt.CheckState.Unchecked)
             include_item.setData(Qt.ItemDataRole.UserRole, row)
-            self.dataset_pairs_table.setItem(row_index, 0, include_item)
+            self.dataset_pairs_table.setItem(row_index, 1, include_item)
 
             group_combo = QComboBox()
             group_options = [
+                ("uncategorized", "Sem categoria"),
                 ("auto", "Auto"),
                 ("train", "Treino"),
                 ("val", "Validacao"),
@@ -2299,25 +2841,28 @@ class CellposeWindow(QMainWindow):
                 group_combo.addItem(label, key)
             group_index = group_combo.findData(group)
             group_combo.setCurrentIndex(group_index if group_index >= 0 else 0)
-            group_combo.setEnabled(row["status"] == "OK")
+            group_combo.setEnabled(can_include)
             group_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             group_combo.currentIndexChanged.connect(
                 lambda _index, selected_row=row_index: self.on_dataset_group_changed(selected_row)
             )
-            self.dataset_pairs_table.setCellWidget(row_index, 1, group_combo)
+            self.dataset_pairs_table.setCellWidget(row_index, 2, group_combo)
 
-            values = [row["image"], row["segmentation"], row["status"]]
+            values = [row["image"], row["status"]]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if col == 1:
+                    self.apply_dataset_status_style(item, value)
                 item.setData(Qt.ItemDataRole.UserRole, row)
-                self.dataset_pairs_table.setItem(row_index, col + 2, item)
+                self.dataset_pairs_table.setItem(row_index, col + 3, item)
             self.dataset_pairs_table.setRowHeight(row_index, 30)
         self.dataset_pairs_table.blockSignals(False)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.apply_dataset_filter()
         if rows:
             selected_row = 0
             if selected_image:
@@ -2345,30 +2890,72 @@ class CellposeWindow(QMainWindow):
 
         rows = []
         for image_path in image_files:
-            seg_path = image_path.with_name(f"{image_path.stem}_seg.npy")
-            tif_mask_path = image_path.with_name(f"{image_path.stem}_masks.tif")
-            tiff_mask_path = image_path.with_name(f"{image_path.stem}_masks.tiff")
-            mask_path = tif_mask_path if tif_mask_path.exists() else tiff_mask_path
-            validation = validate_mask_file(seg_path, mask_path)
-            has_mask = validation["valid"]
-            segmentation = (
-                seg_path.name if seg_path.exists()
-                else (mask_path.name if mask_path.exists() else "ausente")
-            )
-            status = validation["status"] if seg_path.exists() or mask_path.exists() else "Sem mascara"
-            rows.append(
-                {
-                    "image": image_path.name,
-                    "segmentation": segmentation,
-                    "status": "OK" if has_mask else status,
-                    "image_path": str(image_path),
-                    "seg_path": str(seg_path),
-                    "tif_mask_path": str(mask_path),
-                    "mask_pixels": validation["pixel_count"],
-                    "mask_objects": validation["object_count"],
-                }
-            )
+            rows.append(self.conversion_row_for_image(image_path))
         return rows
+
+    def conversion_row_for_image(self, image_path):
+        return conversion_row_for_image_path(image_path)
+
+    def refresh_dataset_row_for_image(self, image_name):
+        if not hasattr(self, "dataset_pairs_table"):
+            return False
+        target_row = -1
+        for row in range(self.dataset_pairs_table.rowCount()):
+            image_item = self.dataset_pairs_table.item(row, 3)
+            if image_item is not None and image_item.text() == image_name:
+                target_row = row
+                break
+        if target_row < 0:
+            return False
+
+        row_data = self.dataset_pair_row_data(target_row)
+        image_path = Path(row_data.get("image_path", "")) if row_data else conversion_input_dir(self.config) / image_name
+        if not image_path.exists():
+            return False
+        row_data = self.conversion_row_for_image(image_path)
+        can_include = row_data["status"] in {"Com mascara", "Sem mascara"}
+
+        self.dataset_pairs_table.blockSignals(True)
+        include_item = self.dataset_pairs_table.item(target_row, 1)
+        if include_item is not None:
+            flags = include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+            if can_include:
+                flags |= Qt.ItemFlag.ItemIsEnabled
+            else:
+                flags &= ~Qt.ItemFlag.ItemIsEnabled
+                include_item.setCheckState(Qt.CheckState.Unchecked)
+            include_item.setFlags(flags)
+            include_item.setData(Qt.ItemDataRole.UserRole, row_data)
+
+        group_combo = self.dataset_pairs_table.cellWidget(target_row, 2)
+        if group_combo:
+            group_combo.setEnabled(can_include)
+
+        for col, value in enumerate([row_data["image"], row_data["status"]], start=3):
+            item = self.dataset_pairs_table.item(target_row, col)
+            if item is None:
+                item = QTableWidgetItem()
+                self.dataset_pairs_table.setItem(target_row, col, item)
+            item.setText(value)
+            if col == 4:
+                self.apply_dataset_status_style(item, value)
+            item.setData(Qt.ItemDataRole.UserRole, row_data)
+        self.dataset_pairs_table.blockSignals(False)
+
+        self.pending_annotation_image_name = image_name
+        self.update_dataset_selection_summary()
+        self.apply_dataset_filter()
+        if self.dataset_pairs_table.currentRow() == target_row:
+            self.show_dataset_preview(row_data)
+        return True
+
+    def apply_dataset_status_style(self, item, status):
+        if status == "Com mascara":
+            item.setForeground(QColor("#16803a"))
+        elif status == "Sem mascara":
+            item.setForeground(QColor("#b42318"))
+        else:
+            item.setForeground(QColor("#1f2933"))
 
     def load_dataset_plan(self):
         return load_plan(dataset_plan_path(self.config))
@@ -2381,59 +2968,259 @@ class CellposeWindow(QMainWindow):
         self.update_dataset_selection_summary()
 
     def on_dataset_group_changed(self, row):
+        if self.bulk_updating_dataset_groups:
+            return
         self.save_dataset_plan_from_table()
-        group_combo = self.dataset_pairs_table.cellWidget(row, 1)
-        if group_combo and group_combo.currentData() == "test":
+        group_combo = self.dataset_pairs_table.cellWidget(row, 2)
+        if group_combo and group_combo.currentData() in {"test", "uncategorized"}:
             self.run_prepare_dataset()
+
+    def selected_dataset_rows(self):
+        if not hasattr(self, "dataset_pairs_table"):
+            return []
+        return sorted({index.row() for index in self.dataset_pairs_table.selectionModel().selectedRows()})
+
+    def move_selected_dataset_rows_to_group(self):
+        rows = self.selected_dataset_rows()
+        if not rows:
+            QMessageBox.information(self, "Mover grupo", "Selecione uma ou mais imagens na tabela.")
+            return
+        group = self.dataset_move_group_combo.currentData()
+        changed = 0
+        self.dataset_pairs_table.blockSignals(True)
+        self.bulk_updating_dataset_groups = True
+        try:
+            for row in rows:
+                if self.dataset_pairs_table.isRowHidden(row):
+                    continue
+                combo = self.dataset_pairs_table.cellWidget(row, 2)
+                if combo is None or not combo.isEnabled():
+                    continue
+                index = combo.findData(group)
+                if index >= 0 and combo.currentIndex() != index:
+                    combo.setCurrentIndex(index)
+                    changed += 1
+        finally:
+            self.bulk_updating_dataset_groups = False
+            self.dataset_pairs_table.blockSignals(False)
+        if changed == 0:
+            QMessageBox.information(self, "Mover grupo", "Nenhuma imagem selecionada pode mudar para esse grupo.")
+            return
+        self.save_dataset_plan_from_table()
+        if group in {"test", "uncategorized"}:
+            self.run_prepare_dataset()
+        self.dataset_validation_summary.setText(
+            self.dataset_validation_summary.text() + f"\nGrupo alterado em {changed} imagem(ns)."
+        )
+
+    def apply_dataset_filter(self):
+        if not hasattr(self, "dataset_pairs_table"):
+            return
+        text = self.dataset_filter.text().strip().lower() if hasattr(self, "dataset_filter") else ""
+        status_filter = self.dataset_status_filter.currentData() if hasattr(self, "dataset_status_filter") else ""
+        group_filter = self.dataset_group_filter.currentData() if hasattr(self, "dataset_group_filter") else ""
+        include_filter = self.dataset_include_filter.currentData() if hasattr(self, "dataset_include_filter") else ""
+        first_visible = -1
+        for row in range(self.dataset_pairs_table.rowCount()):
+            row_data = self.dataset_pair_row_data(row) or {}
+            group_combo = self.dataset_pairs_table.cellWidget(row, 2)
+            group_text = group_combo.currentText().lower() if group_combo else ""
+            group_value = group_combo.currentData() if group_combo and group_combo.currentData() else ""
+            include_item = self.dataset_pairs_table.item(row, 1)
+            is_selected = include_item is not None and include_item.checkState() == Qt.CheckState.Checked
+            haystack = " ".join(
+                [
+                    str(row + 1),
+                    row_data.get("image", ""),
+                    row_data.get("validation_status", ""),
+                    group_text,
+                    group_value,
+                ]
+            ).lower()
+            visible = True
+            if text and text not in haystack:
+                visible = False
+            if status_filter and row_data.get("status") != status_filter:
+                visible = False
+            if group_filter and group_value != group_filter:
+                visible = False
+            if include_filter == "selected" and not is_selected:
+                visible = False
+            if include_filter == "unselected" and is_selected:
+                visible = False
+            self.dataset_pairs_table.setRowHidden(row, not visible)
+            if visible and first_visible < 0:
+                first_visible = row
+        if first_visible >= 0 and self.dataset_pairs_table.currentRow() >= 0:
+            current_row = self.dataset_pairs_table.currentRow()
+            if self.dataset_pairs_table.isRowHidden(current_row):
+                self.dataset_pairs_table.selectRow(first_visible)
+        self.update_dataset_selection_summary()
+
+    def clear_dataset_filters(self):
+        if hasattr(self, "dataset_filter"):
+            self.dataset_filter.clear()
+        for combo_name in ["dataset_status_filter", "dataset_group_filter", "dataset_include_filter"]:
+            if hasattr(self, combo_name):
+                getattr(self, combo_name).setCurrentIndex(0)
+        self.apply_dataset_filter()
 
     def update_dataset_selection_summary(self):
         if not hasattr(self, "dataset_validation_summary"):
             return
         summary = summarize_table_entries(self.dataset_plan_entries_from_table())
+        visible = sum(
+            1
+            for row in range(self.dataset_pairs_table.rowCount())
+            if not self.dataset_pairs_table.isRowHidden(row)
+        )
         groups = summary["groups"]
         self.dataset_validation_summary.setText(
             f"Imagens: {summary['total']}\n"
+            f"Visiveis: {visible}\n"
             f"Pares validos: {summary['valid']}\n"
             f"Selecionadas: {summary['selected']}\n"
-            f"Treino/Val/Teste/Auto: {groups['train']}/{groups['val']}/{groups['test']}/{groups['auto']}\n"
+            f"Sem cat./Treino/Val/Teste/Auto: "
+            f"{groups['uncategorized']}/{groups['train']}/{groups['val']}/{groups['test']}/{groups['auto']}\n"
             f"Sem mascara: {summary['problems']}"
         )
 
     def dataset_plan_entries_from_table(self):
         entries = []
         for row in range(self.dataset_pairs_table.rowCount()):
-            include_item = self.dataset_pairs_table.item(row, 0)
+            include_item = self.dataset_pairs_table.item(row, 1)
             status_item = self.dataset_pairs_table.item(row, 4)
-            group_combo = self.dataset_pairs_table.cellWidget(row, 1)
-            image_item = self.dataset_pairs_table.item(row, 2)
+            group_combo = self.dataset_pairs_table.cellWidget(row, 2)
+            image_item = self.dataset_pairs_table.item(row, 3)
             if include_item is None or status_item is None or image_item is None:
                 continue
             entries.append(
                 {
                     "image": image_item.text(),
                     "include": include_item.checkState() == Qt.CheckState.Checked,
-                    "group": group_combo.currentData() if group_combo else "auto",
+                    "group": group_combo.currentData() if group_combo else "uncategorized",
                     "status": status_item.text(),
                 }
             )
         return entries
 
+    def dataset_pair_row_data(self, row):
+        if not hasattr(self, "dataset_pairs_table") or row < 0:
+            return None
+        item = self.dataset_pairs_table.item(row, 3)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def selected_dataset_pair_row(self):
+        if not hasattr(self, "dataset_pairs_table"):
+            return -1
+        return self.dataset_pairs_table.currentRow()
+
+    def dataset_pair_removal_targets(self, row_data):
+        if not row_data:
+            return []
+
+        image_path = Path(row_data["image_path"])
+        targets = {
+            image_path,
+            Path(row_data["seg_path"]),
+            Path(row_data["tif_mask_path"]),
+            image_path.with_name(f"{image_path.stem}_masks.tif"),
+            image_path.with_name(f"{image_path.stem}_masks.tiff"),
+        }
+        return sorted(targets, key=lambda path: path.name.lower())
+
+    def remove_dataset_plan_entries(self, image_names):
+        plan_path = dataset_plan_path(self.config)
+        plan = load_plan(plan_path)
+        filtered_entries = [entry for image, entry in plan.items() if image not in image_names]
+        if len(filtered_entries) == len(plan):
+            return 0
+        save_plan(plan_path, filtered_entries)
+        return len(plan) - len(filtered_entries)
+
+    def delete_selected_dataset_pair(self):
+        row = self.selected_dataset_pair_row()
+        row_data = self.dataset_pair_row_data(row)
+        if not row_data:
+            QMessageBox.information(self, "Deletar conjunto", "Selecione uma imagem na tabela para deletar.")
+            return
+
+        image_name = row_data["image"]
+        targets = self.dataset_pair_removal_targets(row_data)
+        target_names = "\n".join(f"- {path.name}" for path in targets)
+        reply = QMessageBox.question(
+            self,
+            "Deletar conjunto",
+            (
+                f"Deletar a imagem e a mascara de {image_name}?\n\n"
+                f"Arquivos que serao removidos:\n{target_names}\n\n"
+                "Essa acao nao pode ser desfeita."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted_paths = []
+        missing_paths = []
+        failed_paths = []
+        for target_path in targets:
+            if not target_path.exists():
+                missing_paths.append(target_path)
+                continue
+            try:
+                target_path.unlink()
+                deleted_paths.append(target_path)
+            except OSError as exc:
+                failed_paths.append(f"{target_path.name}: {exc}")
+
+        removed_plan_entries = self.remove_dataset_plan_entries({image_name})
+        self.pending_annotation_image_name = None
+
+        self.dataset_pairs_table.blockSignals(True)
+        self.dataset_pairs_table.removeRow(row)
+        self.dataset_pairs_table.blockSignals(False)
+        if self.dataset_pairs_table.rowCount() > 0:
+            next_row = min(row, self.dataset_pairs_table.rowCount() - 1)
+            self.dataset_pairs_table.selectRow(next_row)
+        self.update_dataset_selection_summary()
+
+        self.append_log(
+            f"\n>>> Deletar conjunto imagem/mascara\n"
+            f"Imagem: {image_name}\n"
+            f"Arquivos removidos: {len(deleted_paths)}\n"
+            f"Arquivos ausentes: {len(missing_paths)}\n"
+            f"Entradas removidas do plano: {removed_plan_entries}\n"
+        )
+
+        if failed_paths:
+            QMessageBox.warning(
+                self,
+                "Deletar conjunto",
+                "Alguns arquivos nao puderam ser removidos:\n\n" + "\n".join(failed_paths),
+            )
+
     def auto_split_dataset_table(self):
         assignments = auto_split_indices(self.dataset_plan_entries_from_table())
 
         self.dataset_pairs_table.blockSignals(True)
-        for row, group in assignments.items():
-            combo = self.dataset_pairs_table.cellWidget(row, 1)
-            if combo:
-                index = combo.findData(group)
-                if index >= 0:
-                    combo.setCurrentIndex(index)
-        self.dataset_pairs_table.blockSignals(False)
+        self.bulk_updating_dataset_groups = True
+        try:
+            for row, group in assignments.items():
+                combo = self.dataset_pairs_table.cellWidget(row, 2)
+                if combo:
+                    index = combo.findData(group)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+        finally:
+            self.bulk_updating_dataset_groups = False
+            self.dataset_pairs_table.blockSignals(False)
         self.save_dataset_plan_from_table()
         self.run_prepare_dataset()
 
     def on_dataset_pair_current_cell_changed(self, current_row, current_column, _previous_row, _previous_column):
-        if current_row < 0 or current_column == 1:
+        if current_row < 0 or current_column == 2:
             return
         self.show_selected_dataset_pair()
 
@@ -2441,12 +3228,11 @@ class CellposeWindow(QMainWindow):
         row = self.dataset_pairs_table.currentRow()
         if row < 0:
             return
-        item = self.dataset_pairs_table.item(row, 2)
+        item = self.dataset_pairs_table.item(row, 3)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}
         self.show_dataset_preview(row_data)
-        self.select_dataset_annotation_row(row_data)
 
     def show_dataset_preview(self, row_data):
         image_path = Path(row_data.get("image_path", ""))
@@ -2457,19 +3243,30 @@ class CellposeWindow(QMainWindow):
             self.dataset_preview_label.setPixmap(QPixmap())
             return
         try:
-            image = Image.open(image_path).convert("RGB")
+            preview_size = (
+                max(1, self.dataset_preview_label.width()),
+                max(1, self.dataset_preview_label.height()),
+            )
+            with Image.open(image_path) as source_image:
+                image = source_image.convert("RGB")
+                image.thumbnail(preview_size, Image.Resampling.BILINEAR)
             mask = None
             if seg_path.exists():
                 mask = np.load(seg_path, allow_pickle=True).item().get("masks")
             elif tif_mask_path.exists():
-                mask = np.array(Image.open(tif_mask_path))
+                with Image.open(tif_mask_path) as mask_image:
+                    mask_image = mask_image.resize(image.size, Image.Resampling.NEAREST)
+                    mask = np.array(mask_image)
             if mask is not None and np.max(mask) > 0:
-                mask = np.asarray(mask)
-                mask_image = Image.fromarray((mask > 0).astype(np.uint8) * 120).resize(image.size)
+                if seg_path.exists():
+                    mask_image = Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * 120)
+                    mask_image = mask_image.resize(image.size, Image.Resampling.NEAREST)
+                else:
+                    mask_image = Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * 120)
                 color = Image.new("RGBA", image.size, (22, 107, 92, 0))
                 color.putalpha(mask_image)
                 image = Image.alpha_composite(image.convert("RGBA"), color).convert("RGB")
-            self.set_label_pixmap(self.dataset_preview_label, image)
+            self.set_dataset_preview_pixmap(image)
             self.dataset_preview_info.setText(
                 f"{image_path.name}\n{row_data.get('status', '')}\nDuplo clique para editar a mascara."
             )
@@ -2481,6 +3278,15 @@ class CellposeWindow(QMainWindow):
                 "Nao foi possivel carregar a imagem de preview.",
                 traceback.format_exc(),
             )
+
+    def set_dataset_preview_pixmap(self, image):
+        width, height = image.size
+        qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
+        pixmap = QPixmap.fromImage(qimage)
+        self.dataset_preview_label._display_scale = 1.0
+        self.dataset_preview_label._display_offset_x = 0
+        self.dataset_preview_label._display_offset_y = 0
+        self.dataset_preview_label.setPixmap(pixmap)
 
     def select_dataset_annotation_row(self, row_data):
         if not hasattr(self, "annotation_page"):
@@ -2507,7 +3313,7 @@ class CellposeWindow(QMainWindow):
         if row < 0:
             QMessageBox.information(self, "Editar mascara", "Selecione uma imagem na tabela.")
             return
-        item = self.dataset_pairs_table.item(row, 2)
+        item = self.dataset_pairs_table.item(row, 3)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}
@@ -2577,7 +3383,7 @@ class CellposeWindow(QMainWindow):
                 with Image.open(src) as image:
                     if image.mode == "P":
                         image = image.convert("RGB")
-                    tiff.imwrite(dst, np.asarray(image))
+                    tiff.imwrite(dst, np.asarray(image), compression="zlib")
                 converted += 1
             except Exception as exc:
                 skipped += 1
@@ -2635,7 +3441,7 @@ class CellposeWindow(QMainWindow):
                 with Image.open(image_path) as image:
                     if image.mode == "P":
                         image = image.convert("RGB")
-                    tiff.imwrite(tif_path, np.asarray(image))
+                    tiff.imwrite(tif_path, np.asarray(image), compression="zlib")
                 image_path.unlink()
                 converted += 1
             except Exception as exc:
@@ -2705,6 +3511,8 @@ class CellposeWindow(QMainWindow):
         self.pred_output.setText(self.config["predictions_dir"])
         self.pred_padding.setValue(int(self.config["padding_pixels"]))
         self.pred_diameter.setText(str(self.config["diameter"]))
+        if hasattr(self, "dataset_prediction_diameter"):
+            self.dataset_prediction_diameter.setText(str(self.config["diameter"]))
         self.pred_cellprob.setText(str(self.config["cellprob_threshold"]))
         self.pred_flow.setText(str(self.config["flow_threshold"]))
         self.config["predictions_dir"] = relative_to_project(predictions_dir(self.config), self.config)
@@ -2954,9 +3762,10 @@ class CellposeWindow(QMainWindow):
         removed_rows = self.invalidate_result_metrics(stem)
         self.runtime_metrics_ready_stems.discard(stem)
         self.update_result_status_row(stem)
-        self.refresh_analysis_metrics()
-        self.refresh_measurement_tables()
-        self.show_analysis_image(stem)
+        if not recalculate:
+            self.refresh_analysis_metrics()
+            self.refresh_measurement_tables()
+            self.show_analysis_image(stem)
         if hasattr(self, "result_progress_label"):
             self.result_progress_label.setText(
                 f"Mascara editada para {stem}. Recalculando metricas..."
@@ -2973,23 +3782,52 @@ class CellposeWindow(QMainWindow):
             QTimer.singleShot(0, lambda image_stem=stem: self.run_metrics_for_result_image(image_stem))
 
     def create_result_overlay(self, stem, mask=None):
-        image_path = self.result_image_path(stem)
         pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
-        if image_path is None or not image_path.exists():
-            return False
         if mask is None:
             if not pred_path.exists():
                 return False
             mask = self.load_mask_array(pred_path)
         if mask is None:
             return False
-        overlays_dir(self.config).mkdir(parents=True, exist_ok=True)
-        base_image = self.load_image_as_rgb(image_path)
-        overlay = self.overlay_colored_mask_on_image(base_image, mask)
-        overlay_path = overlays_dir(self.config) / f"{stem}_overlay_pred.tif"
-        tiff.imwrite(overlay_path, np.asarray(overlay), photometric="rgb")
+        self.save_result_overlay(stem, mask)
         self.runtime_overlay_ready_stems.add(stem)
         return True
+
+    def result_overlay_path(self, stem):
+        return overlays_dir(self.config) / f"{stem}_overlay_pred.png"
+
+    def legacy_result_overlay_paths(self, stem):
+        return [
+            overlays_dir(self.config) / f"{stem}_overlay_pred.tif",
+            overlays_dir(self.config) / f"{stem}_overlay_pred.tiff",
+        ]
+
+    def save_result_overlay(self, stem, mask, alpha=118):
+        overlays_dir(self.config).mkdir(parents=True, exist_ok=True)
+        overlay = self.transparent_overlay_from_mask(mask, alpha=alpha)
+        overlay_path = self.result_overlay_path(stem)
+        overlay.save(overlay_path, format="PNG", optimize=True)
+        for legacy_path in self.legacy_result_overlay_paths(stem):
+            if legacy_path.exists():
+                try:
+                    legacy_path.unlink()
+                except OSError:
+                    pass
+        self.runtime_overlay_ready_stems.add(stem)
+        return overlay_path
+
+    def transparent_overlay_from_mask(self, mask, alpha=118):
+        mask = np.asarray(mask)
+        if mask.ndim > 2:
+            mask = np.squeeze(mask)
+        height, width = mask.shape[:2]
+        overlay = np.zeros((height, width, 4), dtype=np.uint8)
+        labels = mask.astype(np.int64)
+        positive = labels > 0
+        palette = np.asarray([self.vessel_label_color(index + 1) for index in range(8)], dtype=np.uint8)
+        overlay[..., :3] = palette[(labels - 1) % len(palette)]
+        overlay[..., 3] = np.where(positive, alpha, 0).astype(np.uint8)
+        return Image.fromarray(overlay, "RGBA")
 
     def invalidate_result_metrics(self, stem):
         removed = 0
@@ -2998,15 +3836,17 @@ class CellposeWindow(QMainWindow):
         removed += self.remove_rows_from_csv(cell_measurements_csv_path(self.config), "filename", stem)
         return removed
 
-    def result_overlay_exists(self, stem):
+    def result_overlay_exists(self, stem, preferred_only=False):
         if stem in getattr(self, "runtime_overlay_ready_stems", set()):
             return True
+        if preferred_only:
+            return self.result_overlay_path(stem).exists()
         overlay_stems = getattr(self, "result_status_index", {}).get("overlays")
         if overlay_stems is not None:
             return stem in overlay_stems
         return any(
             (overlays_dir(self.config) / f"{stem}_overlay_pred{suffix}").exists()
-            for suffix in [".tif", ".tiff"]
+            for suffix in [".png", ".tif", ".tiff"]
         )
 
     def result_prediction_exists(self, stem):
@@ -3038,7 +3878,7 @@ class CellposeWindow(QMainWindow):
     def build_result_status_index(self, entries=None):
         overlay_stems = {
             self.stem_from_result_path(path.name, "_overlay_pred")
-            for suffix in [".tif", ".tiff"]
+            for suffix in [".png", ".tif", ".tiff"]
             for path in overlays_dir(self.config).glob(f"*_overlay_pred{suffix}")
         }
         overlay_stems.update(getattr(self, "runtime_overlay_ready_stems", set()))
@@ -3082,6 +3922,8 @@ class CellposeWindow(QMainWindow):
         plan = self.load_dataset_plan()
         for image_path in self.result_conversion_input_images():
             saved = plan.get(image_path.name, {})
+            if saved.get("group") == "uncategorized":
+                continue
             is_prediction_only = not self.result_input_mask_exists(image_path)
             if not is_prediction_only and not saved.get("include", True):
                 continue
@@ -3141,8 +3983,8 @@ class CellposeWindow(QMainWindow):
             "Remover imagem",
             (
                 f"Remover {image_label} da aba de resultados e do conjunto test?\n\n"
-                "As imagens de teste, mascaras de teste, predicoes, overlays e linhas dos CSVs "
-                "serao movidos para pastas 'removed' quando existirem."
+                "As imagens e mascaras voltarao para a aba Dados como Sem categoria. "
+                "Predicoes, overlays e linhas dos CSVs serao removidos dos resultados."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -3150,11 +3992,16 @@ class CellposeWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        returned_images = []
         moved_paths = []
         missing_paths = []
         csv_updates = 0
         for image_stem in image_stems:
-            for source_path, removed_dir in self.result_image_removal_targets(image_stem):
+            returned = self.return_result_image_to_uncategorized(image_stem)
+            if returned:
+                returned_images.append(returned)
+
+            for source_path, removed_dir in self.result_output_removal_targets(image_stem):
                 if not source_path.exists():
                     missing_paths.append(source_path)
                     continue
@@ -3171,30 +4018,108 @@ class CellposeWindow(QMainWindow):
         self.refresh_analysis_images()
         self.refresh_analysis_metrics()
         self.refresh_measurement_tables()
+        self.refresh_dataset_import()
         self.refresh_project()
 
         self.append_log(
             f"\n>>> Remover imagem dos resultados\n"
             f"Imagens: {', '.join(image_stems)}\n"
+            f"Retornaram para Sem categoria: {', '.join(returned_images) if returned_images else 'nenhuma'}\n"
             f"Arquivos movidos: {len(moved_paths)}\n"
             f"Arquivos nao encontrados: {len(missing_paths)}\n"
             f"CSVs atualizados: {csv_updates}\n"
         )
 
-    def result_image_removal_targets(self, image_stem):
+    def return_result_image_to_uncategorized(self, image_stem):
+        input_dir = conversion_input_dir(self.config)
+        input_dir.mkdir(parents=True, exist_ok=True)
         project_dir = active_project_dir(self.config)
         test_images_dir = project_path(self.config["test_images_dir"], self.config)
         test_masks_dir = project_dir / "data" / "test" / "masks"
         test_removed_dir = project_dir / "data" / "test" / "removed"
+
+        input_image_path = self.conversion_input_image_for_stem(image_stem)
+        test_image_path = next(
+            (test_images_dir / f"{image_stem}{suffix}" for suffix in IMAGE_EXTENSIONS
+             if (test_images_dir / f"{image_stem}{suffix}").exists()),
+            None,
+        )
+
+        if test_image_path is not None:
+            destination = input_dir / test_image_path.name
+            if input_image_path is None and not destination.exists():
+                shutil.move(str(test_image_path), str(destination))
+                input_image_path = destination
+            else:
+                self.move_to_removed_folder(test_image_path, test_removed_dir / "images")
+
+        if input_image_path is None:
+            result_path = self.result_image_path(image_stem)
+            if result_path is not None and result_path.parent == input_dir and result_path.exists():
+                input_image_path = result_path
+
+        if input_image_path is None:
+            return None
+
+        mask_returned = self.return_result_mask_to_input(image_stem, input_image_path.stem, test_masks_dir, test_removed_dir)
+        has_mask = mask_returned or self.input_mask_exists(input_image_path)
+        self.save_uncategorized_dataset_plan_entry(input_image_path.name, has_mask)
+        return input_image_path.name
+
+    def conversion_input_image_for_stem(self, image_stem):
+        input_dir = conversion_input_dir(self.config)
+        for suffix in IMAGE_EXTENSIONS:
+            image_path = input_dir / f"{image_stem}{suffix}"
+            if image_path.exists():
+                return image_path
+        return None
+
+    def input_mask_exists(self, image_path):
+        return any(
+            image_path.with_name(f"{image_path.stem}{suffix}").exists()
+            for suffix in ["_seg.npy", "_masks.tif", "_masks.tiff"]
+        )
+
+    def return_result_mask_to_input(self, image_stem, input_stem, test_masks_dir, test_removed_dir):
+        for suffix in [".tif", ".tiff"]:
+            source_path = test_masks_dir / f"{image_stem}_masks{suffix}"
+            if not source_path.exists():
+                continue
+
+            input_dir = conversion_input_dir(self.config)
+            existing_input_mask = any((input_dir / f"{input_stem}_masks{ext}").exists() for ext in [".tif", ".tiff"])
+            if existing_input_mask:
+                self.move_to_removed_folder(source_path, test_removed_dir / "masks")
+                return True
+
+            destination = input_dir / f"{input_stem}_masks{suffix}"
+            shutil.move(str(source_path), str(destination))
+            return True
+        return False
+
+    def save_uncategorized_dataset_plan_entry(self, image_name, has_mask):
+        plan_path = dataset_plan_path(self.config)
+        plan = load_plan(plan_path)
+        entry = plan.get(image_name, {})
+        entry.update(
+            {
+                "image": image_name,
+                "include": True,
+                "group": "uncategorized",
+                "status": "Com mascara" if has_mask else "Sem mascara",
+            }
+        )
+        plan[image_name] = entry
+        save_plan(plan_path, list(plan.values()))
+
+    def result_output_removal_targets(self, image_stem):
         output_removed_dir = model_outputs_dir(self.config) / "removed"
 
         targets = []
-        for suffix in [".tif", ".tiff", ".png", ".jpg", ".jpeg"]:
-            targets.append((test_images_dir / f"{image_stem}{suffix}", test_removed_dir / "images"))
         for suffix in [".tif", ".tiff"]:
-            targets.append((test_masks_dir / f"{image_stem}_masks{suffix}", test_removed_dir / "masks"))
             targets.append((predictions_dir(self.config) / f"{image_stem}_pred_masks{suffix}", output_removed_dir / "predictions"))
             targets.append((predictions_dir(self.config) / f"{image_stem}_pred_padded_masks{suffix}", output_removed_dir / "predictions"))
+        for suffix in [".png", ".tif", ".tiff"]:
             targets.append((overlays_dir(self.config) / f"{image_stem}_overlay_pred{suffix}", output_removed_dir / "overlays"))
         return targets
 
@@ -3372,6 +4297,15 @@ class CellposeWindow(QMainWindow):
             pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
             if not pred_path.exists():
                 return None
+            if mode == "overlay":
+                return (
+                    "render",
+                    stem,
+                    mode,
+                    image_key,
+                    self.cache_key("mask", pred_path),
+                    self.cache_key("overlay", self.result_overlay_path(stem)),
+                )
             return "render", stem, mode, image_key, self.cache_key("mask", pred_path)
         return None
 
@@ -3423,6 +4357,13 @@ class CellposeWindow(QMainWindow):
             return None
 
         if mode == "overlay":
+            stored_overlay = self.load_result_overlay_image(stem, base_image.size)
+            if stored_overlay is not None:
+                return stored_overlay
+            self.save_result_overlay(stem, mask)
+            stored_overlay = self.load_result_overlay_image(stem, base_image.size)
+            if stored_overlay is not None:
+                return stored_overlay
             return self.overlay_colored_mask_on_image(base_image, mask)
 
         if mode == "overlay_50pct":
@@ -3441,6 +4382,24 @@ class CellposeWindow(QMainWindow):
             image = self.draw_minor_axes(image, filtered)
 
         return image
+
+    def load_result_overlay_image(self, stem, image_size):
+        image_path = self.result_image_path(stem)
+        if image_path is None or not image_path.exists():
+            return None
+        base_image = self.load_image_as_rgb(image_path)
+        overlay_path = self.result_overlay_path(stem)
+        if overlay_path.exists():
+            with Image.open(overlay_path) as overlay_image:
+                overlay = overlay_image.convert("RGBA")
+                if overlay.size != image_size:
+                    overlay = overlay.resize(image_size, Image.Resampling.NEAREST)
+                return Image.alpha_composite(base_image.convert("RGBA"), overlay).convert("RGB")
+
+        for legacy_path in self.legacy_result_overlay_paths(stem):
+            if legacy_path.exists():
+                return self.load_image_as_rgb(legacy_path)
+        return None
 
     def load_image_as_rgb(self, path):
         cache_key = self.cache_key("image", path)

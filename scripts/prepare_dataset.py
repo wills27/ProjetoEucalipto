@@ -27,6 +27,10 @@ SAVE_CONVERTED_COPY = True
 CONVERT_IMAGES_TO_TIF = True
 
 
+def log_progress(current, total, detail):
+    print(f"PROGRESS {current} {max(1, total)} {detail}", flush=True)
+
+
 def parse_args():
     project_dir = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Prepara dataset em train/val/test.")
@@ -112,7 +116,7 @@ def read_image(image_path):
 
 def save_image_as_tif(image_path, output_path):
     img = read_image(image_path)
-    tiff.imwrite(output_path, img)
+    tiff.imwrite(output_path, img, compression="zlib")
 
 
 def copy_or_convert_image(image_path, output_path):
@@ -192,6 +196,8 @@ def split_dataset_from_plan(pairs, plan):
         if not entry.get("include", True):
             continue
         group = entry.get("group", "auto")
+        if group == "uncategorized":
+            continue
         if mask is None:
             selected["test"].append((image_path, mask))
             continue
@@ -219,7 +225,7 @@ def save_pair_to_folder(image_path, mask, target_dir):
 
     mask_output_name = f"{Path(image_output_name).stem}_masks.tif"
     mask_output_path = target_dir / "masks" / mask_output_name
-    tiff.imwrite(mask_output_path, mask)
+    tiff.imwrite(mask_output_path, mask, compression="zlib")
     return image_output_path, mask_output_path
 
 
@@ -229,7 +235,7 @@ def save_converted_pair(image_path, mask, converted_dir):
     mask_output_path = converted_dir / "masks" / f"{Path(image_output_name).stem}_masks.tif"
 
     copy_or_convert_image(image_path, image_output_path)
-    tiff.imwrite(mask_output_path, mask)
+    tiff.imwrite(mask_output_path, mask, compression="zlib")
 
 
 def main():
@@ -251,8 +257,13 @@ def main():
 
     print("Procurando pares imagem + _seg.npy...")
 
+    total_steps = len(image_files)
+    progress = 0
     for image_path in image_files:
+        log_progress(progress, total_steps, f"Validando: {image_path.name}")
         result = prepare_pair(image_path)
+        progress += 1
+        log_progress(progress, total_steps, f"Validado: {image_path.name}")
 
         if result is None:
             continue
@@ -265,6 +276,7 @@ def main():
         valid_pairs.append((image_path, mask))
 
         if SAVE_CONVERTED_COPY:
+            log_progress(progress, total_steps, f"Convertendo copia: {image_path.name}")
             save_converted_pair(image_path, mask, paths["converted"])
 
     if not valid_pairs and not test_only_pairs:
@@ -290,14 +302,26 @@ def main():
 
     clear_split_dirs(paths)
 
+    split_pairs = train_pairs + val_pairs + test_pairs
+    total_steps = max(1, len(split_pairs))
+    progress = 0
     for image_path, mask in train_pairs:
+        log_progress(progress, total_steps, f"Salvando treino: {image_path.name}")
         save_pair_to_folder(image_path, mask, paths["train"])
+        progress += 1
+        log_progress(progress, total_steps, f"Treino salvo: {image_path.name}")
 
     for image_path, mask in val_pairs:
+        log_progress(progress, total_steps, f"Salvando validacao: {image_path.name}")
         save_pair_to_folder(image_path, mask, paths["val"])
+        progress += 1
+        log_progress(progress, total_steps, f"Validacao salva: {image_path.name}")
 
     for image_path, mask in test_pairs:
+        log_progress(progress, total_steps, f"Salvando teste: {image_path.name}")
         save_pair_to_folder(image_path, mask, paths["test"])
+        progress += 1
+        log_progress(progress, total_steps, f"Teste salvo: {image_path.name}")
 
     print("Dataset preparado com sucesso.")
 

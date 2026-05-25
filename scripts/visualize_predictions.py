@@ -3,6 +3,7 @@ import argparse
 
 import numpy as np
 import tifffile as tiff
+from PIL import Image
 
 
 def parse_args():
@@ -43,14 +44,13 @@ def to_rgb(image):
     raise ValueError(f"Formato de imagem nao suportado: {image.shape}")
 
 
-def create_overlay(image, mask, color=(255, 0, 0), alpha=0.45):
-    rgb = to_rgb(image).astype(np.float32)
+def create_overlay(mask, color=(255, 0, 0), alpha=118):
+    height, width = mask.shape[:2]
+    overlay = np.zeros((height, width, 4), dtype=np.uint8)
     vessel_pixels = mask > 0
-
-    overlay_color = np.array(color, dtype=np.float32)
-    rgb[vessel_pixels] = ((1 - alpha) * rgb[vessel_pixels]) + (alpha * overlay_color)
-
-    return rgb.astype(np.uint8)
+    overlay[vessel_pixels, :3] = np.array(color, dtype=np.uint8)
+    overlay[vessel_pixels, 3] = alpha
+    return overlay
 
 
 def main():
@@ -85,9 +85,13 @@ def main():
             print(f"Formato diferente para {image_path.name}: imagem {image.shape}, predicao {pred_mask.shape}")
             continue
 
-        overlay = create_overlay(image, pred_mask)
-        output_path = overlays_dir / f"{image_path.stem}_overlay_pred.tif"
-        tiff.imwrite(output_path, overlay, photometric="rgb")
+        overlay = create_overlay(pred_mask)
+        output_path = overlays_dir / f"{image_path.stem}_overlay_pred.png"
+        Image.fromarray(overlay, "RGBA").save(output_path, format="PNG", optimize=True)
+        for legacy_suffix in [".tif", ".tiff"]:
+            legacy_path = overlays_dir / f"{image_path.stem}_overlay_pred{legacy_suffix}"
+            if legacy_path.exists():
+                legacy_path.unlink()
 
         saved_count += 1
         print(f"Overlay salvo: {output_path}")

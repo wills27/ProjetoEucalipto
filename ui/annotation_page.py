@@ -1,6 +1,7 @@
 import shutil
 import traceback
 
+import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -53,6 +54,10 @@ class AnnotationPage(QWidget):
         self.contour_points = []
         self.stroke_points = []
         self.editor = None
+        self.saved_mask_snapshot = None
+        self.mask_version = 0
+        self.render_base_cache = None
+        self.render_base_cache_key = None
         self.current_stroke_label = None
         self.is_busy = False
         self.busy_controls = []
@@ -304,7 +309,10 @@ class AnnotationPage(QWidget):
             self.current_image_entry = entry
             self.base_image = Image.open(image_path).convert("RGB")
             self.mask = entry.load_mask(self.base_image.size)
+            self.saved_mask_snapshot = self.mask.copy()
             self.mask_history = []
+            self.mask_version += 1
+            self.invalidate_render_cache()
             self.reset_transient_drawing()
             self.update_preview()
             self.set_status(entry.status_text())
@@ -330,9 +338,7 @@ class AnnotationPage(QWidget):
             self.editor.set_image(image)
 
     def render_image(self):
-        image = self.base_image
-        if self.view_mode == "overlay":
-            image = overlay_mask(image, self.mask)
+        image = self.render_base_image()
         if self.contour_points:
             image = draw_contour_preview(image, self.contour_points)
         if self.stroke_points:
@@ -344,8 +350,24 @@ class AnnotationPage(QWidget):
             )
         return image
 
+    def render_base_image(self):
+        cache_key = (self.view_mode, self.mask_version)
+        if self.render_base_cache is not None and self.render_base_cache_key == cache_key:
+            return self.render_base_cache
+        image = self.base_image
+        if self.view_mode == "overlay":
+            image = overlay_mask(image, self.mask, per_label=True)
+        self.render_base_cache = image
+        self.render_base_cache_key = cache_key
+        return image
+
+    def invalidate_render_cache(self):
+        self.render_base_cache = None
+        self.render_base_cache_key = None
+
     def set_view_mode(self, mode):
         self.view_mode = mode
+        self.invalidate_render_cache()
         for key, button in self.view_buttons.items():
             button.setProperty("active", key == mode)
             button.style().unpolish(button)
@@ -535,6 +557,8 @@ class AnnotationPage(QWidget):
         self.push_history()
         self.reset_transient_drawing()
         self.mask[component] = 0
+        self.mask_version += 1
+        self.invalidate_render_cache()
         self.update_preview()
         self.status_label.setText(f"Mascara removida no ponto clicado: rotulo {label_value}.")
 
@@ -620,6 +644,8 @@ class AnnotationPage(QWidget):
     def apply_stroke(self):
         for point in self.interpolated_stroke_points():
             self.apply_brush_at(point)
+        self.mask_version += 1
+        self.invalidate_render_cache()
         self.update_preview()
 
     def interpolated_stroke_points(self):
@@ -661,6 +687,8 @@ class AnnotationPage(QWidget):
 
     def close_contour(self):
         self.fill_contour()
+        self.mask_version += 1
+        self.invalidate_render_cache()
         self.drawing = False
         self.contour_points = []
 
@@ -678,6 +706,8 @@ class AnnotationPage(QWidget):
         self.push_history()
         self.reset_transient_drawing()
         self.mask[:] = 0
+        self.mask_version += 1
+        self.invalidate_render_cache()
         self.update_preview()
         self.status_label.setText("Mascara limpa em memoria. Clique em salvar para gravar.")
 
@@ -688,7 +718,17 @@ class AnnotationPage(QWidget):
             return
         self.reset_transient_drawing()
         self.mask = self.mask_history.pop()
+        self.mask_version += 1
+        self.invalidate_render_cache()
         self.update_preview()
+
+    def mask_has_changes(self):
+        if self.mask is None or self.saved_mask_snapshot is None:
+            return self.mask is not None
+        return self.mask.shape != self.saved_mask_snapshot.shape or not np.array_equal(
+            self.mask,
+            self.saved_mask_snapshot,
+        )
 
     def save_mask(self, silent=False, recalculate=False):
         if self.is_busy:
@@ -698,7 +738,13 @@ class AnnotationPage(QWidget):
             if not silent:
                 QMessageBox.information(self.window, "Anotar", "Selecione uma imagem para salvar a mascara.")
             return
-        target.save(self.mask, self, silent=silent, recalculate=recalculate)
+        if not self.mask_has_changes():
+            self.set_status("Mascara sem alteracoes; salvamento ignorado.")
+            return False
+        saved = target.save(self.mask, self, silent=silent, recalculate=recalculate)
+        if saved:
+            self.saved_mask_snapshot = self.mask.copy()
+        return saved
 
     def exclude_image(self):
         image_path = self.current_image_path()

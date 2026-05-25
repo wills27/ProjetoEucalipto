@@ -97,6 +97,19 @@ def load_dataset(images_dir, masks_dir):
     return images, masks, used_files
 
 
+def canonicalize_model_path(model_path, models_dir, model_name):
+    model_path = Path(model_path)
+    canonical_path = models_dir / model_name
+    if model_path.resolve() == canonical_path.resolve():
+        return canonical_path
+
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    if canonical_path.exists():
+        canonical_path.unlink()
+    shutil.move(str(model_path), str(canonical_path))
+    return canonical_path
+
+
 def main():
     setup_cellpose_logging()
     args = parse_args()
@@ -168,6 +181,7 @@ def main():
         )
 
     log("ETAPA: treinamento finalizado")
+    model_path = canonicalize_model_path(model_path, models_dir, args.model_name)
     log(f"Modelo salvo em: {model_path}")
     if training_flows_dir.exists():
         log("ETAPA: limpando arquivos temporarios")

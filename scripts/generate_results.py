@@ -100,16 +100,18 @@ def label_color(label_value):
     return np.array(palette[(int(label_value) - 1) % len(palette)], dtype=np.float32)
 
 
-def create_overlay(image, mask, alpha=0.45):
-    rgb = to_rgb(image).astype(np.float32)
+def create_overlay(mask, alpha=118):
+    mask = np.asarray(mask)
+    height, width = mask.shape[:2]
+    overlay = np.zeros((height, width, 4), dtype=np.uint8)
     for label_value in np.unique(mask):
         if label_value == 0:
             continue
         vessel_pixels = mask == label_value
-        overlay_color = label_color(label_value)
-        rgb[vessel_pixels] = ((1 - alpha) * rgb[vessel_pixels]) + (alpha * overlay_color)
+        overlay[vessel_pixels, :3] = label_color(label_value).astype(np.uint8)
+        overlay[vessel_pixels, 3] = alpha
 
-    return rgb.astype(np.uint8)
+    return overlay
 
 
 def main():
@@ -157,12 +159,16 @@ def main():
 
         pred_path = predictions_output / f"{image_path.stem}_pred_masks.tif"
         padded_pred_path = predictions_output / f"{image_path.stem}_pred_padded_masks.tif"
-        overlay_path = overlays_output / f"{image_path.stem}_overlay_pred.tif"
+        overlay_path = overlays_output / f"{image_path.stem}_overlay_pred.png"
 
-        tiff.imwrite(pred_path, masks)
-        tiff.imwrite(padded_pred_path, padded_masks)
-        overlay = create_overlay(image, masks)
-        tiff.imwrite(overlay_path, overlay, photometric="rgb")
+        tiff.imwrite(pred_path, masks, compression="zlib")
+        tiff.imwrite(padded_pred_path, padded_masks, compression="zlib")
+        overlay = create_overlay(masks)
+        Image.fromarray(overlay, "RGBA").save(overlay_path, format="PNG", optimize=True)
+        for legacy_suffix in [".tif", ".tiff"]:
+            legacy_path = overlays_output / f"{image_path.stem}_overlay_pred{legacy_suffix}"
+            if legacy_path.exists():
+                legacy_path.unlink()
 
         print(f"PROGRESS {index} {total} Resultados: {image_path.name}", flush=True)
         print(f"Predicao salva: {pred_path}")

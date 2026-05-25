@@ -69,10 +69,10 @@ def main():
         flow_threshold=args.flow_threshold,
     )
     masks = crop_mask(eval_result[0], args.padding, image.shape).astype(np.uint16)
-    np.save(output_path, {"masks": masks})
     tif_path = output_path.with_name(f"{output_path.stem.replace('_seg', '')}_masks.tif")
-    tiff.imwrite(tif_path, masks)
-    print(f"Mascara criada: {output_path}", flush=True)
+    tiff.imwrite(tif_path, masks, compression="zlib")
+    if output_path.exists():
+        output_path.unlink()
     print(f"Mascara TIFF criada: {tif_path}", flush=True)
 
 

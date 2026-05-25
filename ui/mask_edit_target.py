@@ -81,7 +81,8 @@ class DatasetMaskTarget:
                 f"Mascara salva, mas ainda invalida: minimo de pixels/objetos nao atingido ({self.path.name})."
             )
         page.refresh_images()
-        self.window.refresh_dataset_import()
+        if not self.window.refresh_dataset_row_for_image(self.path.name):
+            self.window.refresh_dataset_import()
         return True
 
 
@@ -122,9 +123,10 @@ class ResultMaskTarget:
         try:
             if hasattr(self.window, "analysis_cache"):
                 self.window.analysis_cache.clear()
-            tiff.imwrite(temp_path, mask)
+            tiff.imwrite(temp_path, mask, compression="zlib")
             replace_tiff_with_retries(temp_path, self.tif_mask_path, self.window)
-            np.save(self.seg_path, {"masks": mask})
+            if self.seg_path.exists():
+                self.seg_path.unlink()
         except OSError as exc:
             if not silent:
                 from PyQt6.QtWidgets import QMessageBox

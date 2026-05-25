@@ -14,8 +14,6 @@ DEFAULT_CONFIG = {
     "flow_threshold": 0.4,
     "test_images_dir": "data/test/images",
     "test_masks_dir": "data/test/masks",
-    "predictions_dir": "outputs/cpsam_vasos_eucalipto_v1/predictions",
-    "overlays_dir": "outputs/cpsam_vasos_eucalipto_v1/overlays",
     "calibration": {
         "unit": "um",
         "unit_per_pixel": 0.0,
@@ -27,11 +25,31 @@ DEFAULT_CONFIG = {
 }
 
 
+DERIVED_CONFIG_KEYS = {"predictions_dir", "overlays_dir"}
+
+
+def with_derived_paths(config):
+    from services.paths import overlays_dir, predictions_dir, relative_to_project
+
+    normalized = config.copy()
+    normalized["predictions_dir"] = relative_to_project(predictions_dir(normalized), normalized)
+    normalized["overlays_dir"] = relative_to_project(overlays_dir(normalized), normalized)
+    return normalized
+
+
+def persistent_config(config):
+    return {
+        key: value
+        for key, value in config.items()
+        if key not in DERIVED_CONFIG_KEYS
+    }
+
+
 def load_config():
     migrate_legacy_config()
     if not CONFIG_PATH.exists():
         save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
+        return with_derived_paths(DEFAULT_CONFIG)
 
     with CONFIG_PATH.open("r", encoding="utf-8-sig") as config_file:
         config = json.load(config_file)
@@ -41,13 +59,13 @@ def load_config():
     calibration = DEFAULT_CONFIG["calibration"].copy()
     calibration.update(config.get("calibration", {}))
     merged["calibration"] = calibration
-    return merged
+    return with_derived_paths(merged)
 
 
 def save_config(config):
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with CONFIG_PATH.open("w", encoding="utf-8") as config_file:
-        json.dump(config, config_file, indent=2)
+        json.dump(persistent_config(config), config_file, indent=2)
 
 
 def migrate_legacy_config():

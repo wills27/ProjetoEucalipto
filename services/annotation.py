@@ -1,3 +1,6 @@
+import gc
+import time
+
 import numpy as np
 import tifffile as tiff
 from PIL import Image, ImageDraw
@@ -13,6 +16,11 @@ def load_mask_file(seg_path, tif_mask_path):
     if tif_mask_path.exists():
         with Image.open(tif_mask_path) as image:
             return np.array(image)
+    for suffix in [".tif", ".tiff"]:
+        alternate_path = seg_path.with_name(f"{seg_path.stem.replace('_seg', '')}_masks{suffix}")
+        if alternate_path.exists():
+            with Image.open(alternate_path) as image:
+                return np.array(image)
     return None
 
 
@@ -89,12 +97,46 @@ def load_mask(seg_path, tif_mask_path, image_size):
     return mask
 
 
-def overlay_mask(image, mask, color=(22, 107, 92), alpha=110):
+MASK_PALETTE = [
+    (22, 107, 92),
+    (208, 89, 75),
+    (48, 111, 181),
+    (214, 162, 58),
+    (127, 88, 175),
+    (59, 145, 112),
+    (202, 96, 139),
+    (80, 137, 170),
+    (178, 119, 48),
+    (100, 119, 204),
+]
+
+
+def color_for_label(label_value):
+    label_value = int(label_value)
+    if label_value <= 0:
+        return 0, 0, 0
+    return MASK_PALETTE[(label_value - 1) % len(MASK_PALETTE)]
+
+
+def overlay_mask(image, mask, color=(22, 107, 92), alpha=110, per_label=False):
     if mask is None or np.max(mask) == 0:
         return image
-    mask_image = Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * alpha).resize(image.size)
+    mask = np.asarray(mask)
+    if mask.shape[:2] != (image.height, image.width):
+        mask_image = Image.fromarray(mask.astype(np.uint16)).resize(image.size, Image.Resampling.NEAREST)
+        mask = np.asarray(mask_image)
+
     color_image = Image.new("RGBA", image.size, (*color, 0))
-    color_image.putalpha(mask_image)
+    if per_label:
+        palette = np.asarray(MASK_PALETTE, dtype=np.uint8)
+        positive = mask > 0
+        color_array = np.zeros((image.height, image.width, 4), dtype=np.uint8)
+        color_array[..., :3] = palette[(mask.astype(np.int64) - 1) % len(palette)]
+        color_array[..., 3] = np.where(positive, alpha, 0).astype(np.uint8)
+        color_image = Image.fromarray(color_array, "RGBA")
+    else:
+        mask_image = Image.fromarray((mask > 0).astype(np.uint8) * alpha)
+        color_image.putalpha(mask_image)
     return Image.alpha_composite(image.convert("RGBA"), color_image).convert("RGB")
 
 
@@ -106,7 +148,7 @@ def draw_contour_preview(image, points):
     start_fill = (0, 210, 96, 170)
     start_outline = (0, 150, 68, 230)
     if len(points) > 1:
-        draw.line(smooth_points(points), fill=line_color, width=5, joint="curve")
+        draw.line(points, fill=line_color, width=5, joint="curve")
     elif points:
         x, y = points[0]
         draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=start_fill)
@@ -249,8 +291,34 @@ def apply_brush(mask, point, radius, tool, value=None):
     return mask
 
 
+def replace_file_with_retries(temp_path, target_path, attempts=8):
+    last_error = None
+    for _attempt in range(attempts):
+        try:
+            temp_path.replace(target_path)
+            return
+        except OSError as exc:
+            last_error = exc
+
+        gc.collect()
+        try:
+            if target_path.exists():
+                target_path.chmod(0o666)
+                target_path.unlink()
+            temp_path.replace(target_path)
+            return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.25)
+
+    raise last_error
+
+
 def save_mask(seg_path, tif_path, mask):
-    seg_path.parent.mkdir(parents=True, exist_ok=True)
+    tif_path.parent.mkdir(parents=True, exist_ok=True)
     mask = mask.astype(np.uint16)
-    np.save(seg_path, {"masks": mask})
-    tiff.imwrite(tif_path, mask)
+    temp_path = tif_path.with_name(f"{tif_path.stem}.tmp{tif_path.suffix}")
+    tiff.imwrite(temp_path, mask, compression="zlib")
+    replace_file_with_retries(temp_path, tif_path)
+    if seg_path.exists():
+        seg_path.unlink()

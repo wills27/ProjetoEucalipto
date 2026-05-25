@@ -82,9 +82,9 @@ def main():
         masks = crop_mask(padded_masks, args.padding, img.shape)
 
         output_path = output_dir / f"{img_path.stem}_pred_masks.tif"
-        tiff.imwrite(output_path, masks.astype("uint16"))
+        tiff.imwrite(output_path, masks.astype("uint16"), compression="zlib")
         padded_output_path = output_dir / f"{img_path.stem}_pred_padded_masks.tif"
-        tiff.imwrite(padded_output_path, padded_masks)
+        tiff.imwrite(padded_output_path, padded_masks, compression="zlib")
         print(f"PROGRESS {index} {total} Predicao: {img_path.name}", flush=True)
 
         print(f"Predição salva: {output_path}")
