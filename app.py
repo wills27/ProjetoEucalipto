@@ -91,7 +91,7 @@ class CellposeWindow(
 
         self.setWindowTitle("Cellpose - Vasos de Eucalipto")
         self.resize(1320, 820)
-        self.setMinimumSize(1100, 700)
+        self.setMinimumSize(900, 600)
 
         self.build_menu()
         self.build_ui()

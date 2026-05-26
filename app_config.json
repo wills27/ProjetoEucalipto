@@ -1,7 +1,7 @@
 {
   "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "cpsam_vasos_eucalipto_v2",
+  "active_model": "",
   "padding_pixels": 64,
   "diameter": 50.0,
   "cellprob_threshold": 0.0,

@@ -42,10 +42,10 @@ class TrainingPageBuilderMixin:
         self.train_batch_size = QSpinBox()
         self.train_batch_size.setRange(1, 512)
         self.train_batch_size.setValue(1)
-        self.train_epochs.setFixedWidth(104)
-        self.train_batch_size.setFixedWidth(92)
+        self.train_epochs.setMinimumWidth(80)
+        self.train_batch_size.setMinimumWidth(72)
         for field in [self.train_learning_rate, self.train_weight_decay]:
-            field.setFixedWidth(104)
+            field.setMinimumWidth(90)
 
         training_params = QWidget()
         training_params_layout = QGridLayout(training_params)

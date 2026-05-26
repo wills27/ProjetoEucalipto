@@ -67,7 +67,7 @@ class UiBuilderMixin:
 
         self.task_progress_label = QLabel()
         self.task_progress_bar = QProgressBar()
-        self.task_progress_bar.setFixedWidth(220)
+        self.task_progress_bar.setMinimumWidth(160)
         self.task_progress_bar.setTextVisible(True)
         self.task_progress_label.hide()
         self.task_progress_bar.hide()
@@ -201,7 +201,8 @@ class UiBuilderMixin:
         )
         self.dataset_preview_label.setObjectName("preview")
         self.dataset_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.dataset_preview_label.setMinimumSize(560, 520)
+        self.dataset_preview_label.setMinimumSize(200, 160)
+        self.dataset_preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.dataset_preview_label.setWordWrap(True)
         self.dataset_preview_info = QLabel(
             "Imagens sem mascara entram como teste para Resultados. Duplo clique para editar/criar mascara."
@@ -212,7 +213,7 @@ class UiBuilderMixin:
         prediction_params.setContentsMargins(0, 0, 0, 0)
         prediction_params.setHorizontalSpacing(8)
         self.dataset_prediction_diameter = QLineEdit(str(self.config["diameter"]))
-        self.dataset_prediction_diameter.setFixedWidth(96)
+        self.dataset_prediction_diameter.setMinimumWidth(72)
         prediction_params.addWidget(QLabel("Diametro da predicao"), 0, 0)
         prediction_params.addWidget(self.dataset_prediction_diameter, 0, 1)
         prediction_params.setColumnStretch(2, 1)

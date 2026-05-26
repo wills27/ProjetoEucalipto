@@ -5,9 +5,7 @@ import tifffile as tiff
 from PIL import Image
 
 from services.conversion_scan import IMAGE_EXTENSIONS
-
-
-SUPPORTED_CONVERSION_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}
+from services.constants import SUPPORTED_CONVERSION_EXTENSIONS
 
 
 def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None):
@@ -17,6 +15,7 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
 
     copied = 0
     converted = 0
+    masks_converted = 0
     skipped = 0
     errors = []
     image_candidates = {}
@@ -26,12 +25,53 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
             continue
 
         if src.name.endswith("_seg.npy"):
-            dst = mask_target_dir / src.name
-            if dst.exists():
+            # convert _seg.npy (dict with 'masks') to _masks.tif
+            try:
+                data = np.load(src, allow_pickle=True)
+                # data may be an array or a dict-like object
+                masks = None
+                if hasattr(data, "item"):
+                    try:
+                        obj = data.item() if data.size == 1 else data
+                    except Exception:
+                        obj = data
+                    if isinstance(obj, dict) and "masks" in obj:
+                        masks = obj.get("masks")
+                if masks is None:
+                    # fallback: try to interpret the file as a plain array
+                    try:
+                        masks = np.asarray(data)
+                    except Exception:
+                        masks = None
+
+                if masks is None:
+                    skipped += 1
+                    errors.append(f"{src}: no 'masks' found")
+                    continue
+
+                base_stem = src.stem[:-4] if src.stem.endswith("_seg") else src.stem
+                dst = mask_target_dir / f"{base_stem}_masks.tif"
+                if dst.exists():
+                    # already have a tif mask, remove seg if present
+                    try:
+                        src.unlink()
+                    except Exception:
+                        pass
+                    skipped += 1
+                    continue
+
+                # ensure array type
+                mask_arr = np.asarray(masks).astype(np.uint16)
+                tiff.imwrite(dst, mask_arr, compression="zlib")
+                # remove original seg file to enforce TIFF standard
+                try:
+                    src.unlink()
+                except Exception:
+                    pass
+                masks_converted += 1
+            except Exception as exc:
                 skipped += 1
-                continue
-            shutil.copy2(src, dst)
-            copied += 1
+                errors.append(f"{src}: {exc}")
             continue
 
         if src.stem.endswith("_masks"):
@@ -89,6 +129,7 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
     return {
         "copied": copied,
         "converted": converted,
+        "masks_converted": masks_converted,
         "skipped": skipped,
         "errors": errors,
     }
@@ -140,3 +181,49 @@ def convert_dataset_images_to_tif(input_dir):
         "failed": failed,
         "errors": errors,
     }
+
+
+def convert_seg_npy_masks_in_dir(masks_dir):
+    masks_dir.mkdir(parents=True, exist_ok=True)
+    converted = 0
+    skipped = 0
+    errors = []
+    for seg_path in sorted(masks_dir.glob("*_seg.npy")):
+        try:
+            data = np.load(seg_path, allow_pickle=True)
+            masks = None
+            if hasattr(data, "item"):
+                try:
+                    obj = data.item() if data.size == 1 else data
+                except Exception:
+                    obj = data
+                if isinstance(obj, dict) and "masks" in obj:
+                    masks = obj.get("masks")
+            if masks is None:
+                try:
+                    masks = np.asarray(data)
+                except Exception:
+                    masks = None
+            if masks is None:
+                skipped += 1
+                errors.append(f"{seg_path}: no 'masks' found")
+                continue
+            base_stem = seg_path.stem[:-4] if seg_path.stem.endswith("_seg") else seg_path.stem
+            dst = masks_dir / f"{base_stem}_masks.tif"
+            if dst.exists():
+                try:
+                    seg_path.unlink()
+                except Exception:
+                    pass
+                skipped += 1
+                continue
+            mask_arr = np.asarray(masks).astype(np.uint16)
+            tiff.imwrite(dst, mask_arr, compression="zlib")
+            try:
+                seg_path.unlink()
+            except Exception:
+                pass
+            converted += 1
+        except Exception as exc:
+            errors.append(f"{seg_path}: {exc}")
+    return {"converted": converted, "skipped": skipped, "errors": errors}

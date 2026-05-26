@@ -284,16 +284,24 @@ class AnalysisPresenterMixin:
         self.set_label_pixmap(self.preview_label, image)
 
     def set_label_pixmap(self, label, image):
-        image = image.convert("RGB")
-        width, height = image.size
-        qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
+        from ui.widgets import qimage_from_pil
+
+        qimage = qimage_from_pil(image)
+        if qimage is None:
+            return None
         source_pixmap = QPixmap.fromImage(qimage)
         pixmap = source_pixmap.scaled(
             label.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        label._display_scale = pixmap.width() / width
+        # original image width (pixels)
+        try:
+            orig_width = qimage.width()
+        except Exception:
+            orig_width = source_pixmap.width()
+
+        label._display_scale = pixmap.width() / max(1, orig_width)
         label._display_offset_x = (label.width() - pixmap.width()) / 2
         label._display_offset_y = (label.height() - pixmap.height()) / 2
         label.setPixmap(pixmap)

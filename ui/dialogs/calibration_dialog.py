@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
+    QSizePolicy,
 )
 
 from services.config import save_config
@@ -44,7 +45,8 @@ class CalibrationDialog(QDialog):
         )
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(620, 520)
+        self.preview_label.setMinimumSize(320, 240)
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         preview_layout.addWidget(self.preview_label, 1)
         preview_actions = QHBoxLayout()
         window.add_button(preview_actions, "Imagem do projeto", self.open_project_image)

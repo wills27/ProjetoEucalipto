@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 from skimage.measure import regionprops
 
@@ -59,7 +60,8 @@ class ResultsViewerDialog(QDialog):
         )
         self.result_preview.setObjectName("preview")
         self.result_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.result_preview.setMinimumSize(760, 520)
+        self.result_preview.setMinimumSize(360, 260)
+        self.result_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.cell_status_label = QLabel("Clique em uma celula para ver os valores.")
         self.cell_status_label.setObjectName("hint")
         self.cell_values_table = QTableWidget(0, 2)

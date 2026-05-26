@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 from PIL import Image
 
@@ -129,7 +130,8 @@ class AnnotationPage(QWidget):
         )
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(640, 520)
+        self.preview_label.setMinimumSize(320, 240)
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_layout.addWidget(self.preview_label, 1)
         layout.addWidget(center, 1)
 

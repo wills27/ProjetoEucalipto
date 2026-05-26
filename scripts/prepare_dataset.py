@@ -14,9 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from services.annotation import validate_mask_content
-
-
-IMAGE_EXTENSIONS = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+from services.constants import IMAGE_EXTENSIONS
 
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15

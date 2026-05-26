@@ -7,7 +7,7 @@ import tifffile as tiff
 from PIL import Image
 
 
-SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}
+from services.constants import SUPPORTED_EXTENSIONS
 
 
 def path_matches_keyword(path, keyword):

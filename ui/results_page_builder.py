@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QHeaderView,
+    QSizePolicy,
 )
 
 from services.paths import dataset_images_dir, relative_to_project
@@ -43,9 +44,9 @@ class ResultsPageBuilderMixin:
         self.pred_diameter = QLineEdit(str(self.config["diameter"]))
         self.pred_cellprob = QLineEdit(str(self.config["cellprob_threshold"]))
         self.pred_flow = QLineEdit(str(self.config["flow_threshold"]))
-        self.pred_padding.setFixedWidth(82)
+        self.pred_padding.setMinimumWidth(60)
         for field in [self.pred_diameter, self.pred_cellprob, self.pred_flow]:
-            field.setFixedWidth(86)
+            field.setMinimumWidth(64)
         self.results_calibration_label = QLabel("Calibracao: nao definida")
         self.results_calibration_label.setObjectName("hint")
 
@@ -162,6 +163,7 @@ class ResultsPageBuilderMixin:
         self.preview_label = QLabel("Selecione uma imagem.")
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(640, 520)
+        self.preview_label.setMinimumSize(320, 240)
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_layout.addWidget(self.preview_label, 1)
         layout.addWidget(center, 1)

@@ -1,8 +1,6 @@
 from services.annotation import validate_mask_file
 from services.paths import dataset_images_dir, dataset_masks_dir
-
-
-IMAGE_EXTENSIONS = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+from services.constants import IMAGE_EXTENSIONS
 
 
 def conversion_row_for_image_path(image_path, masks_dir=None):

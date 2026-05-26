@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QVBoxLayout,
+    QSizePolicy,
 )
 
 from ui.widgets import AnnotationPreviewLabel
@@ -62,9 +63,10 @@ class AnnotationEditorDialog(QDialog):
         )
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(980, 780)
+        self.preview_label.setMinimumSize(480, 360)
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll_area.setWidget(self.preview_label)
         self.preview_label.pan_button = Qt.MouseButton.LeftButton

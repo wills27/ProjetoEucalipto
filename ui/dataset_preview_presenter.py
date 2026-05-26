@@ -15,7 +15,8 @@ class DatasetPreviewPresenterMixin:
         row = self.dataset_pairs_table.currentRow()
         if row < 0:
             return
-        item = self.dataset_pairs_table.item(row, 3)
+        # column 4 holds the image item (Imagem)
+        item = self.dataset_pairs_table.item(row, 4)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}
@@ -51,8 +52,13 @@ class DatasetPreviewPresenterMixin:
             )
 
     def set_dataset_preview_pixmap(self, image):
-        width, height = image.size
-        qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
+        from ui.widgets import qimage_from_pil
+
+        qimage = qimage_from_pil(image)
+        if qimage is None:
+            self.dataset_preview_label.setText("Nao foi possivel converter a imagem para preview.")
+            self.dataset_preview_label.setPixmap(QPixmap())
+            return
         pixmap = QPixmap.fromImage(qimage)
         self.dataset_preview_label._display_scale = 1.0
         self.dataset_preview_label._display_offset_x = 0
@@ -84,7 +90,7 @@ class DatasetPreviewPresenterMixin:
         if row < 0:
             QMessageBox.information(self, "Editar mascara", "Selecione uma imagem na tabela.")
             return
-        item = self.dataset_pairs_table.item(row, 3)
+        item = self.dataset_pairs_table.item(row, 4)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}

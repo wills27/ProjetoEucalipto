@@ -1,5 +1,28 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel
+from PyQt6.QtGui import QImage
+import io
+
+
+def qimage_from_pil(image):
+    """Convert a PIL Image to QImage robustly, with PNG fallback."""
+    if image is None:
+        return None
+    try:
+        img = image.convert("RGB")
+        width, height = img.size
+        data = img.tobytes()
+        bytes_per_line = width * 3
+        qimg = QImage(data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+        return qimg.copy()
+    except Exception:
+        try:
+            bio = io.BytesIO()
+            image.save(bio, format="PNG")
+            qimg = QImage.fromData(bio.getvalue())
+            return qimg.copy()
+        except Exception:
+            return None
 
 
 class AnnotationPreviewLabel(QLabel):
