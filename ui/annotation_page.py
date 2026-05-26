@@ -31,7 +31,7 @@ from services.annotation import (
     validate_mask_file,
 )
 from ui.mask_edit_target import DatasetMaskTarget
-from services.paths import conversion_excluded_dir, conversion_input_dir
+from services.paths import conversion_excluded_dir, dataset_images_dir, dataset_masks_dir
 from ui.annotation_editor import AnnotationEditorDialog
 from ui.widgets import AnnotationPreviewLabel
 
@@ -188,7 +188,7 @@ class AnnotationPage(QWidget):
         open_folder_button = self.window.add_button(
             right_layout,
             "Abrir pasta de entrada",
-            lambda: self.window.open_folder(conversion_input_dir(self.window.config)),
+            lambda: self.window.open_folder(dataset_images_dir(self.window.config)),
         )
         self.busy_controls.extend([exclude_button, open_folder_button])
         self.busy_progress = QProgressBar()
@@ -205,7 +205,7 @@ class AnnotationPage(QWidget):
             if self.current_image_entry:
                 self.current_image_entry.refresh_state()
             return
-        input_dir = conversion_input_dir(self.window.config)
+        input_dir = dataset_images_dir(self.window.config)
         input_dir.mkdir(parents=True, exist_ok=True)
         selected = self.window.pending_annotation_image_name
         if selected is None and self.image_list.currentItem():
@@ -241,20 +241,25 @@ class AnnotationPage(QWidget):
             self.status_label.setText("A pasta de entrada nao tem imagens.")
 
     def image_entries(self):
-        input_dir = conversion_input_dir(self.window.config)
+        input_dir = dataset_images_dir(self.window.config)
+        masks_dir = dataset_masks_dir(self.window.config)
         images = []
         for ext in IMAGE_EXTENSIONS:
             images.extend(input_dir.glob(f"*{ext}"))
         image_paths = sorted(
+            {path.resolve(): path for path in images}.values(),
+            key=lambda path: path.name.lower(),
+        )
+        image_paths = [
             path
-            for path in images
+            for path in image_paths
             if not path.stem.endswith("_masks")
             and not path.stem.endswith("_pred_mask")
-        )
+        ]
         entries = []
         for path in image_paths:
-            seg_path = path.with_name(f"{path.stem}_seg.npy")
-            tif_mask_path = path.with_name(f"{path.stem}_masks.tif")
+            seg_path = masks_dir / f"{path.stem}_seg.npy"
+            tif_mask_path = masks_dir / f"{path.stem}_masks.tif"
             validation = validate_mask_file(seg_path, tif_mask_path)
             has_mask = validation["valid"]
             entries.append(
@@ -747,7 +752,8 @@ class AnnotationPage(QWidget):
         return saved
 
     def exclude_image(self):
-        image_path = self.current_image_path()
+        entry = self.current_entry()
+        image_path = entry.path if entry else None
         if image_path is None:
             QMessageBox.information(self.window, "Anotar", "Selecione uma imagem.")
             return
@@ -759,10 +765,7 @@ class AnnotationPage(QWidget):
             target = excluded_dir / f"{image_path.stem}_{counter}{image_path.suffix}"
             counter += 1
         shutil.move(str(image_path), str(target))
-        for sidecar in [
-            image_path.with_name(f"{image_path.stem}_seg.npy"),
-            image_path.with_name(f"{image_path.stem}_masks.tif"),
-        ]:
+        for sidecar in [entry.seg_path, entry.tif_mask_path]:
             if sidecar.exists():
                 sidecar_target = excluded_dir / sidecar.name
                 sidecar_counter = 1

@@ -1,13 +1,11 @@
 {
   "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "carol9",
+  "active_model": "cpsam_vasos_eucalipto_v2",
   "padding_pixels": 64,
   "diameter": 50.0,
   "cellprob_threshold": 0.0,
   "flow_threshold": 0.4,
-  "test_images_dir": "data\\test\\images",
-  "test_masks_dir": "data/test/masks",
   "calibration": {
     "unit": "um",
     "unit_per_pixel": 0.0,

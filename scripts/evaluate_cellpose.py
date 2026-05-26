@@ -11,6 +11,7 @@ def parse_args():
     default_model = "cpsam_vasos_eucalipto_v1"
     parser = argparse.ArgumentParser(description="Avalia predicoes contra mascaras reais.")
     parser.add_argument("--masks", default=str(project_dir / "data" / "test" / "masks"))
+    parser.add_argument("--mask-files", nargs="*", default=None, help="Arquivos de mascara especificos para avaliar.")
     parser.add_argument("--predictions", default=str(project_dir / "outputs" / default_model / "predictions"))
     parser.add_argument("--output-csv", default=str(project_dir / "outputs" / default_model / "metrics.csv"))
     parser.add_argument("--images", nargs="*", default=None, help="Stems das imagens que devem ser avaliadas.")
@@ -55,28 +56,49 @@ def normalize_metric_row(row):
     return normalized
 
 
+def load_mask(mask_path):
+    if mask_path.suffix.lower() == ".npy":
+        data = np.load(mask_path, allow_pickle=True).item()
+        if "masks" not in data or data["masks"] is None:
+            raise ValueError(f"Mascara invalida em {mask_path}")
+        return data["masks"]
+    return tiff.imread(mask_path)
+
+
+def stem_from_mask_path(mask_path):
+    name = mask_path.name
+    if name.endswith("_seg.npy"):
+        return name.removesuffix("_seg.npy")
+    if name.endswith("_masks.tiff"):
+        return name.removesuffix("_masks.tiff")
+    return name.removesuffix("_masks.tif")
+
+
 def main():
     args = parse_args()
 
-    test_masks_dir = Path(args.masks)
+    masks_dir = Path(args.masks)
     predictions_dir = Path(args.predictions)
     output_csv = Path(args.output_csv)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     selected_stems = set(args.images or [])
-    gt_files = sorted(test_masks_dir.glob("*_masks.tif"))
+    if args.mask_files:
+        gt_files = sorted(Path(path) for path in args.mask_files)
+    else:
+        gt_files = sorted(masks_dir.glob("*_masks.tif"))
     if selected_stems:
-        gt_files = [path for path in gt_files if path.name.removesuffix("_masks.tif") in selected_stems]
+        gt_files = [path for path in gt_files if stem_from_mask_path(path) in selected_stems]
 
     if not gt_files:
-        raise RuntimeError(f"Nenhuma mascara de teste encontrada em: {test_masks_dir}")
+        raise RuntimeError(f"Nenhuma mascara encontrada em: {masks_dir}")
 
     rows = []
     total = len(gt_files)
     print(f"PROGRESS 0 {total} Iniciando avaliacao", flush=True)
 
     for index, gt_path in enumerate(gt_files, start=1):
-        image_stem = gt_path.name.removesuffix("_masks.tif")
+        image_stem = stem_from_mask_path(gt_path)
         pred_path = predictions_dir / f"{image_stem}_pred_masks.tif"
 
         if not pred_path.exists():
@@ -84,7 +106,7 @@ def main():
             print(f"PROGRESS {index} {total} Avaliacao: {image_stem}", flush=True)
             continue
 
-        gt_mask = tiff.imread(gt_path)
+        gt_mask = load_mask(gt_path)
         pred_mask = tiff.imread(pred_path)
 
         if gt_mask.shape != pred_mask.shape:

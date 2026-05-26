@@ -12,8 +12,6 @@ DEFAULT_CONFIG = {
     "diameter": 0.0,
     "cellprob_threshold": 0.0,
     "flow_threshold": 0.4,
-    "test_images_dir": "data/test/images",
-    "test_masks_dir": "data/test/masks",
     "calibration": {
         "unit": "um",
         "unit_per_pixel": 0.0,

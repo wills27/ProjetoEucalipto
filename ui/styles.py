@@ -190,6 +190,11 @@ APP_STYLE = r"""
                 padding: 0 4px;
                 font-weight: 700;
             }
+            QFrame#dialogSection {
+                background: #ffffff;
+                border: 1px solid #d9dfd8;
+                border-radius: 8px;
+            }
             QFrame#card {
                 background: #ffffff;
                 border: 1px solid #d9dfd8;
@@ -230,6 +235,57 @@ APP_STYLE = r"""
                 border: 1px solid #d9dfd8;
                 border-radius: 6px;
                 padding: 4px;
+            }
+            QCheckBox {
+                spacing: 8px;
+                background: transparent;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #9aa8a0;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #5fa08f;
+            }
+            QCheckBox::indicator:checked {
+                background: #166b5c;
+                border: 1px solid #166b5c;
+                image: url(ui/assets/check.svg);
+            }
+            QCheckBox::indicator:disabled {
+                background: #eef0ed;
+                border: 1px solid #c8d0c8;
+            }
+            QRadioButton#choice {
+                background: #fbfbfa;
+                border: 1px solid #d9dfd8;
+                border-radius: 6px;
+                padding: 8px 12px;
+                spacing: 8px;
+            }
+            QRadioButton#choice:hover {
+                border: 1px solid #8ab4e1;
+                background: #f3f8fd;
+            }
+            QRadioButton#choice[selected="true"] {
+                border: 1px solid #166b5c;
+                background: #e7f0ec;
+                color: #166b5c;
+                font-weight: 700;
+            }
+            QRadioButton#choice::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #9aa8a0;
+                border-radius: 7px;
+                background: #ffffff;
+            }
+            QRadioButton#choice::indicator:checked {
+                border: 4px solid #166b5c;
+                background: #ffffff;
             }
             QTableWidget {
                 alternate-background-color: #fbfbfa;

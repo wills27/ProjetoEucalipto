@@ -1,7 +1,9 @@
 from pathlib import Path
 import argparse
+import json
 import logging
 import os
+import random
 import shutil
 import sys
 
@@ -22,6 +24,7 @@ def parse_args():
     parser.add_argument("--weight-decay", type=float, default=0.1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--require-gpu", action="store_true")
+    parser.add_argument("--plan", default=None, help="JSON com inclusao e grupo de cada imagem.")
     return parser.parse_args()
 
 
@@ -97,6 +100,103 @@ def load_dataset(images_dir, masks_dir):
     return images, masks, used_files
 
 
+def load_mask(mask_path):
+    if mask_path.suffix.lower() == ".npy":
+        data = np.load(mask_path, allow_pickle=True).item()
+        if "masks" not in data or data["masks"] is None:
+            raise ValueError(f"Mascara invalida em {mask_path}")
+        return data["masks"].astype(np.uint16)
+    return tiff.imread(mask_path).astype(np.uint16)
+
+
+def find_image_path(project_dir, image_name):
+    stem = Path(image_name).stem
+    for folder in [
+        project_dir / "data" / "images",
+    ]:
+        image_path = folder / image_name
+        if image_path.exists():
+            return image_path
+        for suffix in [".tif", ".tiff", ".png", ".jpg", ".jpeg"]:
+            candidate = folder / f"{stem}{suffix}"
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def find_mask_path(project_dir, image_path):
+    for folder in [project_dir / "data" / "masks"]:
+        for suffix in ["_seg.npy", "_masks.tif", "_masks.tiff"]:
+            candidate = folder / f"{image_path.stem}{suffix}"
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def split_auto_entries(entries):
+    automatic = entries.copy()
+    random.seed(42)
+    random.shuffle(automatic)
+    total = len(automatic)
+    n_train = int(total * 0.7)
+    n_val = int(total * 0.15)
+    return automatic[:n_train], automatic[n_train:n_train + n_val]
+
+
+def load_dataset_from_plan(project_dir, plan_path):
+    if not plan_path:
+        return None
+    path = Path(plan_path)
+    if not path.exists():
+        return None
+
+    with path.open("r", encoding="utf-8") as plan_file:
+        data = json.load(plan_file)
+
+    grouped = {"train": [], "val": [], "auto": []}
+    for entry in data.get("images", []):
+        if not entry.get("include", True):
+            continue
+        group = entry.get("group", "uncategorized")
+        if group not in grouped:
+            continue
+        image_path = find_image_path(project_dir, entry.get("image", ""))
+        if image_path is None:
+            log(f"Warning: imagem nao encontrada no plano: {entry.get('image', '')}")
+            continue
+        mask_path = find_mask_path(project_dir, image_path)
+        if mask_path is None:
+            log(f"Warning: mascara nao encontrada para {image_path.name}")
+            continue
+        grouped[group].append((image_path, mask_path))
+
+    auto_train, auto_val = split_auto_entries(grouped["auto"])
+    train_pairs = grouped["train"] + auto_train
+    val_pairs = grouped["val"] + auto_val
+    if not train_pairs and not val_pairs:
+        return None
+
+    def load_pairs(pairs, label):
+        images = []
+        masks = []
+        used_files = []
+        log(f"  Pares no plano para {label}: {len(pairs)}")
+        for image_path, mask_path in pairs:
+            image = tiff.imread(image_path)
+            mask = load_mask(mask_path)
+            if mask.max() == 0:
+                log(f"Warning: Mask for {image_path} is empty, skipping.")
+                continue
+            images.append(image)
+            masks.append(mask)
+            used_files.append(image_path.stem)
+        return images, masks, used_files
+
+    train_images, train_masks, train_files = load_pairs(train_pairs, "treino")
+    val_images, val_masks, val_files = load_pairs(val_pairs, "validacao")
+    return train_images, train_masks, train_files, val_images, val_masks, val_files
+
+
 def canonicalize_model_path(model_path, models_dir, model_name):
     model_path = Path(model_path)
     canonical_path = models_dir / model_name
@@ -126,11 +226,16 @@ def main():
     training_flows_dir = project_dir / "outputs" / args.model_name / "training_flows"
     training_flows_dir.mkdir(parents=True, exist_ok=True)
 
-    log("ETAPA: carregando dados de treino")
-    train_images, train_masks, train_files = load_dataset(train_images_dir, train_masks_dir)
+    plan_dataset = load_dataset_from_plan(project_dir, args.plan)
+    if plan_dataset is not None:
+        log("ETAPA: carregando dados do plano")
+        train_images, train_masks, train_files, val_images, val_masks, val_files = plan_dataset
+    else:
+        log("ETAPA: carregando dados de treino")
+        train_images, train_masks, train_files = load_dataset(train_images_dir, train_masks_dir)
 
-    log("ETAPA: carregando dados de validacao")
-    val_images, val_masks, val_files = load_dataset(val_images_dir, val_masks_dir)
+        log("ETAPA: carregando dados de validacao")
+        val_images, val_masks, val_files = load_dataset(val_images_dir, val_masks_dir)
 
     log(f"Imagens de treino: {len(train_images)}")
     log(f"Imagens de validacao: {len(val_images)}")

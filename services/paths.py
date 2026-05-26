@@ -56,16 +56,20 @@ def overlays_dir(config, model_name=None):
     return model_outputs_dir(config, model_name) / "overlays"
 
 
-def conversion_input_dir(config):
-    return active_project_dir(config) / "data" / "conversion" / "input"
-
-
 def conversion_excluded_dir(config):
-    return active_project_dir(config) / "data" / "conversion" / "excluded"
+    return active_project_dir(config) / "data" / "excluded"
+
+
+def dataset_images_dir(config):
+    return active_project_dir(config) / "data" / "images"
+
+
+def dataset_masks_dir(config):
+    return active_project_dir(config) / "data" / "masks"
 
 
 def dataset_plan_path(config):
-    return active_project_dir(config) / "data" / "conversion" / "dataset_plan.json"
+    return active_project_dir(config) / "data" / "dataset_plan.json"
 
 
 def relative_to_project(path, config):
@@ -77,16 +81,9 @@ def relative_to_project(path, config):
 
 def ensure_project_structure(project_dir):
     folders = [
-        project_dir / "data" / "conversion" / "input",
-        project_dir / "data" / "conversion" / "excluded",
-        project_dir / "data" / "conversion" / "converted" / "images",
-        project_dir / "data" / "conversion" / "converted" / "masks",
-        project_dir / "data" / "train" / "images",
-        project_dir / "data" / "train" / "masks",
-        project_dir / "data" / "val" / "images",
-        project_dir / "data" / "val" / "masks",
-        project_dir / "data" / "test" / "images",
-        project_dir / "data" / "test" / "masks",
+        project_dir / "data" / "images",
+        project_dir / "data" / "masks",
+        project_dir / "data" / "excluded",
         project_dir / "models",
         project_dir / "outputs",
     ]

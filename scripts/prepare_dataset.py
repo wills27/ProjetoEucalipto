@@ -23,7 +23,6 @@ VAL_RATIO = 0.15
 TEST_RATIO = 0.15
 
 RANDOM_SEED = 42
-SAVE_CONVERTED_COPY = True
 CONVERT_IMAGES_TO_TIF = True
 
 
@@ -42,8 +41,8 @@ def parse_args():
 def dataset_paths(project_dir):
     data_dir = Path(project_dir) / "data"
     return {
-        "input": data_dir / "conversion" / "input",
-        "converted": data_dir / "conversion" / "converted",
+        "input": data_dir / "images",
+        "masks": data_dir / "masks",
         "train": data_dir / "train",
         "val": data_dir / "val",
         "test": data_dir / "test",
@@ -52,8 +51,8 @@ def dataset_paths(project_dir):
 
 def ensure_dirs(paths):
     folders = [
-        paths["converted"] / "images",
-        paths["converted"] / "masks",
+        paths["input"],
+        paths["masks"],
         paths["train"] / "images",
         paths["train"] / "masks",
         paths["val"] / "images",
@@ -84,7 +83,7 @@ def find_image_files(input_dir):
 
     files = [
         path
-        for path in files
+        for path in {path.resolve(): path for path in files}.values()
         if not path.stem.endswith("_masks") and not path.stem.endswith("_pred_mask")
     ]
 
@@ -132,10 +131,11 @@ def get_output_image_name(image_path):
     return image_path.name
 
 
-def prepare_pair(image_path):
-    seg_path = image_path.with_name(f"{image_path.stem}_seg.npy")
-    tif_mask_path = image_path.with_name(f"{image_path.stem}_masks.tif")
-    tiff_mask_path = image_path.with_name(f"{image_path.stem}_masks.tiff")
+def prepare_pair(image_path, masks_dir=None):
+    masks_dir = masks_dir or image_path.parent
+    seg_path = masks_dir / f"{image_path.stem}_seg.npy"
+    tif_mask_path = masks_dir / f"{image_path.stem}_masks.tif"
+    tiff_mask_path = masks_dir / f"{image_path.stem}_masks.tiff"
 
     if seg_path.exists():
         mask = load_seg_mask(seg_path)
@@ -229,15 +229,6 @@ def save_pair_to_folder(image_path, mask, target_dir):
     return image_output_path, mask_output_path
 
 
-def save_converted_pair(image_path, mask, converted_dir):
-    image_output_name = get_output_image_name(image_path)
-    image_output_path = converted_dir / "images" / image_output_name
-    mask_output_path = converted_dir / "masks" / f"{Path(image_output_name).stem}_masks.tif"
-
-    copy_or_convert_image(image_path, image_output_path)
-    tiff.imwrite(mask_output_path, mask, compression="zlib")
-
-
 def main():
     args = parse_args()
     project_dir = Path(args.project_dir)
@@ -261,7 +252,7 @@ def main():
     progress = 0
     for image_path in image_files:
         log_progress(progress, total_steps, f"Validando: {image_path.name}")
-        result = prepare_pair(image_path)
+        result = prepare_pair(image_path, paths["masks"])
         progress += 1
         log_progress(progress, total_steps, f"Validado: {image_path.name}")
 
@@ -274,10 +265,6 @@ def main():
             continue
 
         valid_pairs.append((image_path, mask))
-
-        if SAVE_CONVERTED_COPY:
-            log_progress(progress, total_steps, f"Convertendo copia: {image_path.name}")
-            save_converted_pair(image_path, mask, paths["converted"])
 
     if not valid_pairs and not test_only_pairs:
         print("Nenhuma imagem valida encontrada.")
