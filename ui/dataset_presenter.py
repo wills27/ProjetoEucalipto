@@ -17,12 +17,11 @@ from services.dataset_service import (
 from workers.dataset_scan_worker import DatasetScanWorker
 
 
-DATASET_ACTION_COL = 0
-DATASET_NUMBER_COL = 1
-DATASET_INCLUDE_COL = 2
-DATASET_GROUP_COL = 3
-DATASET_IMAGE_COL = 4
-DATASET_STATUS_COL = 5
+DATASET_NUMBER_COL = 0
+DATASET_INCLUDE_COL = 1
+DATASET_GROUP_COL = 2
+DATASET_IMAGE_COL = 3
+DATASET_STATUS_COL = 4
 
 
 class DatasetPresenterMixin:
@@ -94,69 +93,60 @@ class DatasetPresenterMixin:
             f"Outros status: {invalid_count}"
         )
 
+        self.dataset_pairs_table.setUpdatesEnabled(False)
         self.dataset_pairs_table.blockSignals(True)
-        self.dataset_pairs_table.setRowCount(len(rows))
-        for row_index, row in enumerate(rows):
-            saved = plan.get(row["image"], {})
-            can_include = row["status"] in {"Com mascara", "Sem mascara"}
-            include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
-            group = saved.get("group", "uncategorized")
+        try:
+            self.dataset_pairs_table.setRowCount(len(rows))
+            for row_index, row in enumerate(rows):
+                saved = plan.get(row["image"], {})
+                can_include = row["status"] in {"Com mascara", "Sem mascara"}
+                include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
+                group = saved.get("group", "uncategorized")
 
-            action_item = QTableWidgetItem()
-            action_item.setFlags(
-                (action_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                & ~Qt.ItemFlag.ItemIsEditable
-            )
-            if not can_include:
-                action_item.setFlags(action_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            action_item.setCheckState(Qt.CheckState.Unchecked)
-            action_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            action_item.setData(Qt.ItemDataRole.UserRole, row)
-            self.dataset_pairs_table.setItem(row_index, DATASET_ACTION_COL, action_item)
+                number_item = QTableWidgetItem(str(row_index + 1))
+                number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                number_item.setData(Qt.ItemDataRole.UserRole, row)
+                self.dataset_pairs_table.setItem(row_index, DATASET_NUMBER_COL, number_item)
 
-            number_item = QTableWidgetItem(str(row_index + 1))
-            number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            number_item.setData(Qt.ItemDataRole.UserRole, row)
-            self.dataset_pairs_table.setItem(row_index, DATASET_NUMBER_COL, number_item)
+                include_item = QTableWidgetItem()
+                include_item.setFlags(include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                if not can_include:
+                    include_item.setFlags(include_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                include_item.setCheckState(Qt.CheckState.Checked if include else Qt.CheckState.Unchecked)
+                include_item.setData(Qt.ItemDataRole.UserRole, row)
+                self.dataset_pairs_table.setItem(row_index, DATASET_INCLUDE_COL, include_item)
 
-            include_item = QTableWidgetItem()
-            include_item.setFlags(include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            if not can_include:
-                include_item.setFlags(include_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            include_item.setCheckState(Qt.CheckState.Checked if include else Qt.CheckState.Unchecked)
-            include_item.setData(Qt.ItemDataRole.UserRole, row)
-            self.dataset_pairs_table.setItem(row_index, DATASET_INCLUDE_COL, include_item)
+                group_combo = QComboBox()
+                group_options = [
+                    ("uncategorized", "Sem categoria"),
+                    ("auto", "Auto"),
+                    ("train", "Treino"),
+                    ("val", "Validacao"),
+                    ("test", "Teste"),
+                ]
+                for key, label in group_options:
+                    group_combo.addItem(label, key)
+                group_index = group_combo.findData(group)
+                group_combo.setCurrentIndex(group_index if group_index >= 0 else 0)
+                group_combo.setEnabled(can_include)
+                group_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                group_combo.currentIndexChanged.connect(
+                    lambda _index, selected_row=row_index: self.on_dataset_group_changed(selected_row)
+                )
+                self.dataset_pairs_table.setCellWidget(row_index, DATASET_GROUP_COL, group_combo)
 
-            group_combo = QComboBox()
-            group_options = [
-                ("uncategorized", "Sem categoria"),
-                ("auto", "Auto"),
-                ("train", "Treino"),
-                ("val", "Validacao"),
-                ("test", "Teste"),
-            ]
-            for key, label in group_options:
-                group_combo.addItem(label, key)
-            group_index = group_combo.findData(group)
-            group_combo.setCurrentIndex(group_index if group_index >= 0 else 0)
-            group_combo.setEnabled(can_include)
-            group_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            group_combo.currentIndexChanged.connect(
-                lambda _index, selected_row=row_index: self.on_dataset_group_changed(selected_row)
-            )
-            self.dataset_pairs_table.setCellWidget(row_index, DATASET_GROUP_COL, group_combo)
-
-            values = [row["image"], row["status"]]
-            for col, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if col == 1:
-                    self.apply_dataset_status_style(item, value)
-                item.setData(Qt.ItemDataRole.UserRole, row)
-                self.dataset_pairs_table.setItem(row_index, col + DATASET_IMAGE_COL, item)
-            self.dataset_pairs_table.setRowHeight(row_index, 30)
-        self.dataset_pairs_table.blockSignals(False)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_ACTION_COL, QHeaderView.ResizeMode.ResizeToContents)
+                values = [row["image"], row["status"]]
+                for col, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if col == 1:
+                        self.apply_dataset_status_style(item, value)
+                    item.setData(Qt.ItemDataRole.UserRole, row)
+                    self.dataset_pairs_table.setItem(row_index, col + DATASET_IMAGE_COL, item)
+                self.dataset_pairs_table.setRowHeight(row_index, 30)
+        finally:
+            self.dataset_pairs_table.blockSignals(False)
+            self.dataset_pairs_table.setUpdatesEnabled(True)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_NUMBER_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_INCLUDE_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_GROUP_COL, QHeaderView.ResizeMode.ResizeToContents)
@@ -218,17 +208,6 @@ class DatasetPresenterMixin:
         if group_combo:
             group_combo.setEnabled(can_include)
 
-        action_item = self.dataset_pairs_table.item(target_row, DATASET_ACTION_COL)
-        if action_item is not None:
-            flags = action_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            if can_include:
-                flags |= Qt.ItemFlag.ItemIsEnabled
-            else:
-                flags &= ~Qt.ItemFlag.ItemIsEnabled
-                action_item.setCheckState(Qt.CheckState.Unchecked)
-            action_item.setFlags(flags)
-            action_item.setData(Qt.ItemDataRole.UserRole, row_data)
-
         for col, value in [(DATASET_IMAGE_COL, row_data["image"]), (DATASET_STATUS_COL, row_data["status"])]:
             item = self.dataset_pairs_table.item(target_row, col)
             if item is None:
@@ -266,9 +245,6 @@ class DatasetPresenterMixin:
         self.update_dataset_selection_summary()
 
     def on_dataset_table_item_changed(self, item):
-        if item.column() == DATASET_ACTION_COL:
-            self.update_dataset_selection_summary()
-            return
         self.save_dataset_plan_from_table()
 
     def on_dataset_group_changed(self, row):
@@ -282,25 +258,18 @@ class DatasetPresenterMixin:
     def selected_dataset_rows(self):
         if not hasattr(self, "dataset_pairs_table"):
             return []
-        rows = []
-        for row in range(self.dataset_pairs_table.rowCount()):
-            action_item = self.dataset_pairs_table.item(row, DATASET_ACTION_COL)
-            if action_item is not None and action_item.checkState() == Qt.CheckState.Checked:
-                rows.append(row)
-        return rows
+        return sorted({index.row() for index in self.dataset_pairs_table.selectedIndexes()})
 
     def set_dataset_action_selection(self, rows, checked):
         if not hasattr(self, "dataset_pairs_table"):
             return
-        self.dataset_pairs_table.blockSignals(True)
-        try:
-            for row in rows:
-                action_item = self.dataset_pairs_table.item(row, DATASET_ACTION_COL)
-                if action_item is None or not (action_item.flags() & Qt.ItemFlag.ItemIsEnabled):
-                    continue
-                action_item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-        finally:
-            self.dataset_pairs_table.blockSignals(False)
+        if not checked:
+            self.dataset_pairs_table.clearSelection()
+            self.update_dataset_selection_summary()
+            return
+        for row in rows:
+            if not self.dataset_pairs_table.isRowHidden(row):
+                self.dataset_pairs_table.selectRow(row)
         self.update_dataset_selection_summary()
 
     def visible_dataset_rows(self):
@@ -323,26 +292,17 @@ class DatasetPresenterMixin:
         if not hasattr(self, "dataset_pairs_table"):
             return
         rows = self.visible_dataset_rows()
-        self.dataset_pairs_table.blockSignals(True)
-        try:
-            for row in rows:
-                action_item = self.dataset_pairs_table.item(row, DATASET_ACTION_COL)
-                if action_item is None or not (action_item.flags() & Qt.ItemFlag.ItemIsEnabled):
-                    continue
-                next_state = (
-                    Qt.CheckState.Unchecked
-                    if action_item.checkState() == Qt.CheckState.Checked
-                    else Qt.CheckState.Checked
-                )
-                action_item.setCheckState(next_state)
-        finally:
-            self.dataset_pairs_table.blockSignals(False)
+        selected_rows = set(self.selected_dataset_rows())
+        self.dataset_pairs_table.clearSelection()
+        for row in rows:
+            if row not in selected_rows:
+                self.dataset_pairs_table.selectRow(row)
         self.update_dataset_selection_summary()
 
     def move_selected_dataset_rows_to_group(self):
         rows = self.selected_dataset_rows()
         if not rows:
-            QMessageBox.information(self, "Mover grupo", "Marque uma ou mais imagens na coluna Sel.")
+            QMessageBox.information(self, "Mover grupo", "Selecione uma ou mais imagens na tabela.")
             return
         group = self.dataset_move_group_combo.currentData()
         changed = 0
@@ -369,7 +329,6 @@ class DatasetPresenterMixin:
         self.result_entries_cache = None
         if hasattr(self, "result_images_table"):
             self.refresh_analysis_images()
-        self.clear_dataset_action_selection()
         self.dataset_validation_summary.setText(
             self.dataset_validation_summary.text() + f"\nGrupo alterado em {changed} imagem(ns)."
         )
@@ -426,7 +385,6 @@ class DatasetPresenterMixin:
         )
         self.dataset_validation_summary.setText(
             dataset_selection_summary_text(self.dataset_plan_entries_from_table(), visible)
-            + f"\nMarcadas: {len(self.selected_dataset_rows())}"
         )
 
     def dataset_plan_entries_from_table(self):

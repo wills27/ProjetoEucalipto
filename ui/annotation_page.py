@@ -34,7 +34,7 @@ from services.annotation import (
 from ui.mask_edit_target import DatasetMaskTarget
 from services.paths import conversion_excluded_dir, dataset_images_dir, dataset_masks_dir
 from ui.annotation_editor import AnnotationEditorDialog
-from ui.widgets import AnnotationPreviewLabel
+from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
 IMAGE_EXTENSIONS = [".tif", ".tiff", ".png", ".jpg", ".jpeg"]
 
@@ -504,17 +504,7 @@ class AnnotationPage(QWidget):
         if self.base_image is None:
             return None
         image_width, image_height = self.base_image.size
-        scale = getattr(source_label, "_display_scale", None)
-        offset_x = getattr(source_label, "_display_offset_x", 0)
-        offset_y = getattr(source_label, "_display_offset_y", 0)
-        if scale is None:
-            label_width = source_label.width()
-            label_height = source_label.height()
-            scale = min(label_width / image_width, label_height / image_height)
-            display_width = image_width * scale
-            display_height = image_height * scale
-            offset_x = (label_width - display_width) / 2
-            offset_y = (label_height - display_height) / 2
+        scale, offset_x, offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
         image_x = int((x - offset_x) / scale)
         image_y = int((y - offset_y) / scale)
         if clamp_to_image:

@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
-from ui.widgets import AnnotationPreviewLabel
+from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
 
 class AnnotationEditorDialog(QDialog):
@@ -223,17 +223,7 @@ class AnnotationEditorDialog(QDialog):
         if self.current_image is None:
             return None
         image_width, image_height = self.current_image.size
-        scale = getattr(source_label, "_display_scale", None)
-        offset_x = getattr(source_label, "_display_offset_x", 0)
-        offset_y = getattr(source_label, "_display_offset_y", 0)
-        if scale is None:
-            label_width = source_label.width()
-            label_height = source_label.height()
-            scale = min(label_width / image_width, label_height / image_height)
-            display_width = image_width * scale
-            display_height = image_height * scale
-            offset_x = (label_width - display_width) / 2
-            offset_y = (label_height - display_height) / 2
+        scale, offset_x, offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
         image_x = int((x - offset_x) / scale)
         image_y = int((y - offset_y) / scale)
         if image_x < 0 or image_y < 0 or image_x >= image_width or image_y >= image_height:
@@ -258,8 +248,8 @@ class AnnotationEditorDialog(QDialog):
         self.preview_label.setMinimumSize(pixmap.size())
         self.preview_label.resize(pixmap.size())
         self.preview_label._display_scale = pixmap.width() / width
-        self.preview_label._display_offset_x = 0
-        self.preview_label._display_offset_y = 0
+        self.preview_label._display_offset_x = (self.preview_label.width() - pixmap.width()) / 2
+        self.preview_label._display_offset_y = (self.preview_label.height() - pixmap.height()) / 2
         self.preview_label.setPixmap(pixmap)
 
     def _panel(self, title):

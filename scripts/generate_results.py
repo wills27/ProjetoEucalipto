@@ -1,10 +1,17 @@
 from pathlib import Path
 import argparse
+import sys
 
 import numpy as np
 import tifffile as tiff
 from cellpose import core, models
 from PIL import Image
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
+from services.overlay_rendering import transparent_overlay_from_mask
 
 
 DEFAULT_PROJECT_DIR = Path(__file__).resolve().parents[1] / "projects" / "eucalipto"
@@ -21,6 +28,7 @@ def parse_args():
     parser.add_argument("--diameter", type=float, default=0.0)
     parser.add_argument("--cellprob-threshold", type=float, default=0.0)
     parser.add_argument("--flow-threshold", type=float, default=0.4)
+    parser.add_argument("--save-padded-masks", action="store_true")
     return parser.parse_args()
 
 
@@ -101,17 +109,7 @@ def label_color(label_value):
 
 
 def create_overlay(mask, alpha=118):
-    mask = np.asarray(mask)
-    height, width = mask.shape[:2]
-    overlay = np.zeros((height, width, 4), dtype=np.uint8)
-    for label_value in np.unique(mask):
-        if label_value == 0:
-            continue
-        vessel_pixels = mask == label_value
-        overlay[vessel_pixels, :3] = label_color(label_value).astype(np.uint8)
-        overlay[vessel_pixels, 3] = alpha
-
-    return overlay
+    return transparent_overlay_from_mask(mask, alpha=alpha)
 
 
 def main():
@@ -162,9 +160,10 @@ def main():
         overlay_path = overlays_output / f"{image_path.stem}_overlay_pred.png"
 
         tiff.imwrite(pred_path, masks, compression="zlib")
-        tiff.imwrite(padded_pred_path, padded_masks, compression="zlib")
+        if args.save_padded_masks:
+            tiff.imwrite(padded_pred_path, padded_masks, compression="zlib")
         overlay = create_overlay(masks)
-        Image.fromarray(overlay, "RGBA").save(overlay_path, format="PNG", optimize=True)
+        overlay.save(overlay_path, format="PNG", compress_level=1)
         for legacy_suffix in [".tif", ".tiff"]:
             legacy_path = overlays_output / f"{image_path.stem}_overlay_pred{legacy_suffix}"
             if legacy_path.exists():

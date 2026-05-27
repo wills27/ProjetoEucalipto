@@ -15,8 +15,8 @@ class DatasetPreviewPresenterMixin:
         row = self.dataset_pairs_table.currentRow()
         if row < 0:
             return
-        # column 4 holds the image item (Imagem)
-        item = self.dataset_pairs_table.item(row, 4)
+        # column 3 holds the image item (Imagem)
+        item = self.dataset_pairs_table.item(row, 3)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}
@@ -90,7 +90,7 @@ class DatasetPreviewPresenterMixin:
         if row < 0:
             QMessageBox.information(self, "Editar mascara", "Selecione uma imagem na tabela.")
             return
-        item = self.dataset_pairs_table.item(row, 4)
+        item = self.dataset_pairs_table.item(row, 3)
         if item is None:
             return
         row_data = item.data(Qt.ItemDataRole.UserRole) or {}

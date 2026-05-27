@@ -80,14 +80,20 @@ class ProcessPresenterMixin:
         )
         if exit_code != 0:
             self.show_process_error(exit_code)
+        defer_refresh = (
+            exit_code == 0
+            and finished_title in self.result_process_titles
+            and bool(self.pending_actions)
+        )
         self.current_process_title = ""
         self.current_process_model = ""
         self.config = load_config()
-        self.runtime_overlay_ready_stems.clear()
-        self.runtime_metrics_ready_stems.clear()
-        if not self.pending_actions:
-            self.pending_result_stems = None
-        self.refresh_all()
+        if not defer_refresh:
+            self.runtime_overlay_ready_stems.clear()
+            self.runtime_metrics_ready_stems.clear()
+            if not self.pending_actions:
+                self.pending_result_stems = None
+            self.refresh_all()
         if finished_title == "Criar mascara":
             self.pending_annotation_image_path = None
             self.pending_annotation_image_name = None

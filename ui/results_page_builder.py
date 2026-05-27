@@ -80,7 +80,12 @@ class ResultsPageBuilderMixin:
         model_layout.addWidget(params_row, 1, 1)
         model_layout.addWidget(self.results_calibration_label, 2, 1)
         predict_actions = QHBoxLayout()
-        self.generate_results_button = self.add_button(predict_actions, "Gerar resultados", self.run_results, primary=True)
+        self.generate_results_button = self.add_button(
+            predict_actions,
+            "Gerar resultados",
+            self.run_missing_result_outputs,
+            primary=True,
+        )
         results_menu = QMenu(self.generate_results_button)
         all_images_action = results_menu.addAction("Todas as imagens")
         current_image_action = results_menu.addAction("Imagem atual")

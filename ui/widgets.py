@@ -25,6 +25,31 @@ def qimage_from_pil(image):
             return None
 
 
+def displayed_pixmap_geometry(label, image_width, image_height):
+    scale = getattr(label, "_display_scale", None)
+    pixmap = label.pixmap()
+    if pixmap is not None and not pixmap.isNull():
+        display_width = pixmap.width()
+        display_height = pixmap.height()
+        if scale is None:
+            scale = display_width / max(1, image_width)
+        offset_x = (label.width() - display_width) / 2
+        offset_y = (label.height() - display_height) / 2
+        return scale, offset_x, offset_y
+
+    offset_x = getattr(label, "_display_offset_x", 0)
+    offset_y = getattr(label, "_display_offset_y", 0)
+    if scale is None:
+        label_width = label.width()
+        label_height = label.height()
+        scale = min(label_width / image_width, label_height / image_height)
+        display_width = image_width * scale
+        display_height = image_height * scale
+        offset_x = (label_width - display_width) / 2
+        offset_y = (label_height - display_height) / 2
+    return scale, offset_x, offset_y
+
+
 class AnnotationPreviewLabel(QLabel):
     def __init__(
         self,
