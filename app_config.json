@@ -1,7 +1,7 @@
 {
-  "active_project": "Carol",
-  "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "carol9",
+  "active_project": "eucalipto",
+  "projects_dir": "",
+  "active_model": "",
   "padding_pixels": 64,
   "diameter": 50.0,
   "cellprob_threshold": 0.0,
@@ -14,5 +14,8 @@
     "source": "",
     "source_image": ""
   },
-  "import_results_grayscale": true
+  "import_results_grayscale": true,
+  "import_dataset_recursive": true,
+  "import_dataset_skip_keyword": "",
+  "import_dataset_grayscale": false
 }

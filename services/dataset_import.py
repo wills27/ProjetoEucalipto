@@ -1,4 +1,5 @@
 import shutil
+from pathlib import Path
 
 import numpy as np
 import tifffile as tiff
@@ -6,9 +7,18 @@ from PIL import Image
 
 from services.conversion_scan import IMAGE_EXTENSIONS
 from services.constants import SUPPORTED_CONVERSION_EXTENSIONS
+from services.prediction_import import image_array_to_grayscale
+from services.prediction_import import path_matches_keyword
 
 
-def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None):
+def import_dataset_folder_contents(
+    source_dir,
+    target_dir,
+    mask_target_dir=None,
+    convert_to_grayscale=False,
+    recursive=True,
+    keyword="",
+):
     target_dir.mkdir(parents=True, exist_ok=True)
     mask_target_dir = mask_target_dir or target_dir
     mask_target_dir.mkdir(parents=True, exist_ok=True)
@@ -20,8 +30,13 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
     errors = []
     image_candidates = {}
 
-    for src in sorted(source_dir.iterdir()):
+    source_paths = source_dir.rglob("*") if recursive else source_dir.iterdir()
+    for src in sorted(source_paths, key=lambda path: str(path).lower()):
         if not src.is_file():
+            continue
+
+        if path_matches_keyword(src, keyword):
+            skipped += 1
             continue
 
         if src.name.endswith("_seg.npy"):
@@ -107,7 +122,12 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
             if dst.exists():
                 skipped += 1
                 continue
-            shutil.copy2(src, dst)
+            if convert_to_grayscale:
+                image_array = tiff.imread(src)
+                image_array = image_array_to_grayscale(image_array)
+                tiff.imwrite(dst, image_array, compression="zlib")
+            else:
+                shutil.copy2(src, dst)
             copied += 1
             continue
 
@@ -118,7 +138,9 @@ def import_dataset_folder_contents(source_dir, target_dir, mask_target_dir=None)
 
         try:
             with Image.open(src) as image:
-                if image.mode == "P":
+                if convert_to_grayscale:
+                    image = image.convert("L")
+                elif image.mode == "P":
                     image = image.convert("RGB")
                 tiff.imwrite(dst, np.asarray(image), compression="zlib")
             converted += 1

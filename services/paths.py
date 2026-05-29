@@ -21,18 +21,37 @@ def app_config_dir():
 CONFIG_PATH = app_config_dir() / "app_config.json"
 
 
+def candidate_projects_dirs():
+    return [
+        Path.home() / "OneDrive" / "Documents" / "CellposeProjects",
+        Path.home() / "Documents" / "CellposeProjects",
+        Path.home() / "CellposeProjects",
+    ]
+
+
 def default_projects_dir():
-    documents = Path.home() / "Documents"
-    if documents.exists():
-        return documents / "CellposeProjects"
-    return Path.home() / "CellposeProjects"
+    for candidate in candidate_projects_dirs():
+        if candidate.exists():
+            return candidate
+    return candidate_projects_dirs()[0]
 
 
 def projects_dir(config):
-    path = Path(config.get("projects_dir", "projects"))
-    if path.is_absolute():
-        return path
-    return PROJECT_DIR / path
+    raw_path = str(config.get("projects_dir", ""))
+    path = Path(os.path.expandvars(raw_path)).expanduser() if raw_path else None
+    if path:
+        if path.is_absolute() and path.exists():
+            return path
+        if not path.is_absolute():
+            project_relative_path = PROJECT_DIR / path
+            if project_relative_path.exists():
+                return project_relative_path
+
+    for candidate in candidate_projects_dirs():
+        if candidate.exists():
+            return candidate
+
+    return default_projects_dir()
 
 
 def active_project_dir(config):

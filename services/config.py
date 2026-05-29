@@ -1,5 +1,6 @@
 import json
 import shutil
+from pathlib import Path
 
 from services.paths import CONFIG_PATH, LEGACY_CONFIG_PATH, default_projects_dir
 
@@ -57,6 +58,10 @@ def load_config():
     calibration = DEFAULT_CONFIG["calibration"].copy()
     calibration.update(config.get("calibration", {}))
     merged["calibration"] = calibration
+    projects_dir = Path(str(merged.get("projects_dir", ""))).expanduser()
+    if projects_dir and projects_dir.is_absolute() and not projects_dir.exists():
+        merged["projects_dir"] = str(default_projects_dir())
+        save_config(merged)
     return with_derived_paths(merged)
 
 
