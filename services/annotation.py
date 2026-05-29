@@ -140,21 +140,30 @@ def overlay_mask(image, mask, color=(22, 107, 92), alpha=110, per_label=False):
     return Image.alpha_composite(image.convert("RGBA"), color_image).convert("RGB")
 
 
-def draw_contour_preview(image, points):
+def draw_contour_preview(image, points, marker_radius=9, line_width=5, smooth=True, smooth_iterations=2):
     preview = image.convert("RGBA")
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
     line_color = (0, 210, 96, 210)
     start_fill = (0, 210, 96, 170)
     start_outline = (0, 150, 68, 230)
-    if len(points) > 1:
-        draw.line(points, fill=line_color, width=5, joint="curve")
+    marker_radius = max(3, int(marker_radius))
+    inner_radius = max(2, int(marker_radius * 0.55))
+    line_width = max(1, int(line_width))
+    preview_points = (
+        smooth_points(points, iterations=smooth_iterations, closed=False)
+        if smooth and len(points) > 3
+        else points
+    )
+    if len(preview_points) > 1:
+        draw.line(preview_points, fill=line_color, width=line_width, joint="curve")
     elif points:
         x, y = points[0]
-        draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=start_fill)
+        draw.ellipse((x - inner_radius, y - inner_radius, x + inner_radius, y + inner_radius), fill=start_fill)
     if points:
         x, y = points[0]
-        draw.ellipse((x - 9, y - 9, x + 9, y + 9), outline=start_outline, width=3)
+        outline_width = max(2, min(6, int(round(marker_radius / 3))))
+        draw.ellipse((x - marker_radius, y - marker_radius, x + marker_radius, y + marker_radius), outline=start_outline, width=outline_width)
     return Image.alpha_composite(preview, layer).convert("RGB")
 
 
@@ -191,7 +200,7 @@ def contour_area(shape, points, smooth=False):
     mask_image = Image.new("L", (shape[1], shape[0]), 0)
     draw = ImageDraw.Draw(mask_image)
     polygon_points = close_contour_through_image_border(shape, points)
-    polygon_points = smooth_points(polygon_points, closed=True) if smooth else polygon_points
+    polygon_points = smooth_points(polygon_points, iterations=3, closed=True) if smooth else polygon_points
     draw.polygon(polygon_points, fill=1)
     return np.array(mask_image, dtype=bool)
 

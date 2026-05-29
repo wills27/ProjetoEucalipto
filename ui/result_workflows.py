@@ -275,7 +275,7 @@ class ResultWorkflowMixin:
 
     def save_prediction_config(self):
         self.config = with_derived_paths(self.config)
-        self.config["padding_pixels"] = self.pred_padding.value()
+        self.config["padding_pixels"] = max(0, int(self.parse_float(self.pred_padding.text(), 0)))
         self.config["diameter"] = self.parse_float(self.pred_diameter.text(), 0.0)
         self.config["cellprob_threshold"] = self.parse_float(self.pred_cellprob.text(), 0.0)
         self.config["flow_threshold"] = self.parse_float(self.pred_flow.text(), 0.4)

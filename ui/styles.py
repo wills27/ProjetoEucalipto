@@ -1,5 +1,11 @@
 APP_STYLE = r"""
-            QMainWindow, QWidget {
+            QWidget {
+                background: transparent;
+                color: #1f2933;
+                font-family: Segoe UI;
+                font-size: 10pt;
+            }
+            QMainWindow, QDialog, QWidget#appRoot, QWidget#page {
                 background: #f6f7f5;
                 color: #1f2933;
                 font-family: Segoe UI;
@@ -79,6 +85,7 @@ APP_STYLE = r"""
             QLabel#largeText {
                 font-size: 13pt;
                 font-weight: 600;
+                background: transparent;
             }
             QLabel#metricTitle {
                 color: #69736d;
@@ -230,11 +237,15 @@ APP_STYLE = r"""
                 border: 1px solid #d9dfd8;
                 border-radius: 8px;
             }
-            QLineEdit, QSpinBox, QTextEdit, QListWidget, QTableWidget {
+            QLineEdit, QSpinBox, QComboBox, QTextEdit, QListWidget, QTableWidget {
                 background: #ffffff;
                 border: 1px solid #d9dfd8;
                 border-radius: 6px;
                 padding: 4px;
+            }
+            QComboBox::drop-down {
+                border: 0;
+                width: 24px;
             }
             QCheckBox {
                 spacing: 8px;

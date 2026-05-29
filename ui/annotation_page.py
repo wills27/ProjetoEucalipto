@@ -2,7 +2,7 @@ import shutil
 import traceback
 
 import numpy as np
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QGridLayout,
@@ -62,6 +62,10 @@ class AnnotationPage(QWidget):
         self.current_stroke_label = None
         self.is_busy = False
         self.busy_controls = []
+        self.closing_contour_preview = False
+        self.preview_update_timer = QTimer(self)
+        self.preview_update_timer.setSingleShot(True)
+        self.preview_update_timer.timeout.connect(self.update_preview)
         self._init_controls()
         if build_ui:
             self.build()
@@ -338,16 +342,28 @@ class AnnotationPage(QWidget):
     def update_preview(self):
         if self.base_image is None:
             return
-        image = self.render_image()
-        if self.build_ui:
+        update_page_preview = self.build_ui and not (self.editor is not None and self.drawing)
+        if update_page_preview:
+            image = self.render_image(self.contour_preview_style_for_label(self.preview_label))
             self.window.set_label_pixmap(self.preview_label, image)
         if self.editor is not None:
+            scale = self.editor.preview_scale_for_size(self.base_image.size)
+            image = self.render_image(self.contour_preview_style_for_scale(scale))
             self.editor.set_image(image)
 
-    def render_image(self):
+    def request_preview_update(self, immediate=False):
+        if immediate:
+            self.preview_update_timer.stop()
+            self.update_preview()
+            return
+        if not self.preview_update_timer.isActive():
+            self.preview_update_timer.start(10)
+
+    def render_image(self, contour_preview_style=None):
         image = self.render_base_image()
         if self.contour_points:
-            image = draw_contour_preview(image, self.contour_points)
+            contour_preview_style = contour_preview_style or {}
+            image = draw_contour_preview(image, self.contour_points, **contour_preview_style)
         if self.stroke_points:
             image = draw_stroke_preview(
                 image,
@@ -367,6 +383,18 @@ class AnnotationPage(QWidget):
         self.render_base_cache = image
         self.render_base_cache_key = cache_key
         return image
+
+    def contour_preview_style_for_label(self, label):
+        scale = getattr(label, "_display_scale", None)
+        return self.contour_preview_style_for_scale(scale)
+
+    def contour_preview_style_for_scale(self, scale):
+        if not scale or scale <= 0:
+            return {}
+        return {
+            "marker_radius": min(52, max(7, int(round(9 / scale)))),
+            "line_width": min(30, max(5, int(round(4 / scale)))),
+        }
 
     def invalidate_render_cache(self):
         self.render_base_cache = None
@@ -562,6 +590,8 @@ class AnnotationPage(QWidget):
     def start_draw(self, source_label, x, y):
         if self.is_busy:
             return
+        if self.closing_contour_preview:
+            return
         if self.mask is None or self.base_image is None:
             return
         point = self.widget_to_image_xy(source_label, x, y, clamp_to_image=True)
@@ -570,23 +600,24 @@ class AnnotationPage(QWidget):
         if self.tool == "contour":
             point = self.snap_contour_point_to_edge(point)
             if self.drawing:
-                if self.distance_between_points(point, self.contour_points[-1]) >= 3:
-                    self.contour_points.append(point)
+                self.append_drag_point(self.contour_points, point, source_label)
                 self.push_history()
-                self.close_contour()
+                self.preview_then_close_contour()
             else:
                 self.drawing = True
                 self.contour_points = [point]
-            self.update_preview()
+            self.request_preview_update(immediate=True)
             return
         self.push_history()
         self.drawing = True
         self.current_stroke_label = None
         self.stroke_points = [point]
-        self.update_preview()
+        self.request_preview_update(immediate=True)
 
     def drag_draw(self, source_label, x, y):
         if self.is_busy:
+            return
+        if self.closing_contour_preview:
             return
         if not self.drawing:
             return
@@ -595,18 +626,16 @@ class AnnotationPage(QWidget):
             return
         if self.tool == "contour":
             point = self.snap_contour_point_to_edge(point)
-            if self.should_auto_close_contour(point):
+            if self.should_auto_close_contour(point, source_label):
+                self.append_drag_point(self.contour_points, point, source_label)
                 self.push_history()
-                self.close_contour()
-                self.update_preview()
+                self.preview_then_close_contour()
                 return
-            if not self.contour_points or self.distance_between_points(point, self.contour_points[-1]) >= 3:
-                self.contour_points.append(point)
-                self.update_preview()
+            if self.append_drag_point(self.contour_points, point, source_label):
+                self.request_preview_update()
             return
-        if not self.stroke_points or self.distance_between_points(point, self.stroke_points[-1]) >= 2:
-            self.stroke_points.append(point)
-            self.update_preview()
+        if self.append_drag_point(self.stroke_points, point, source_label):
+            self.request_preview_update()
 
     def finish_draw(self, source_label, x, y):
         if self.is_busy:
@@ -629,6 +658,8 @@ class AnnotationPage(QWidget):
     def cancel_draw(self):
         if self.tool != "contour" or not self.drawing:
             return
+        self.preview_update_timer.stop()
+        self.closing_contour_preview = False
         self.drawing = False
         self.contour_points = []
         self.stroke_points = []
@@ -638,7 +669,39 @@ class AnnotationPage(QWidget):
     def distance_between_points(self, first, second):
         return ((first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2) ** 0.5
 
+    def drag_point_spacing(self, source_label):
+        if self.base_image is None:
+            return 1
+        image_width, image_height = self.base_image.size
+        scale, _offset_x, _offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
+        if scale <= 0:
+            return 1
+        return max(1, min(5, int(round(1.4 / scale))))
+
+    def append_drag_point(self, points, point, source_label):
+        if not points:
+            points.append(point)
+            return True
+
+        spacing = self.drag_point_spacing(source_label)
+        previous = points[-1]
+        distance = self.distance_between_points(previous, point)
+        if distance < spacing:
+            return False
+
+        segments = max(1, int(distance / spacing))
+        for index in range(1, segments + 1):
+            ratio = index / segments
+            points.append(
+                (
+                    int(round(previous[0] + (point[0] - previous[0]) * ratio)),
+                    int(round(previous[1] + (point[1] - previous[1]) * ratio)),
+                )
+            )
+        return True
+
     def apply_stroke(self):
+        self.preview_update_timer.stop()
         for point in self.interpolated_stroke_points():
             self.apply_brush_at(point)
         self.mask_version += 1
@@ -669,10 +732,10 @@ class AnnotationPage(QWidget):
     def fill_contour(self):
         if self.mask is None or len(self.contour_points) < 3:
             return
-        area = contour_area(self.mask.shape, self.contour_points)
+        area = contour_area(self.mask.shape, self.contour_points, smooth=True)
         add_non_overlapping_area(self.mask, area)
 
-    def should_auto_close_contour(self, point):
+    def should_auto_close_contour(self, point, source_label=None):
         if not self.drawing or len(self.contour_points) < 8:
             return False
         start_point = self.contour_points[0]
@@ -680,16 +743,39 @@ class AnnotationPage(QWidget):
             self.distance_between_points(previous, current)
             for previous, current in zip(self.contour_points, self.contour_points[1:])
         )
-        return path_distance >= 40 and self.distance_between_points(point, start_point) <= 6
+        tolerance = 6
+        if source_label is not None and self.base_image is not None:
+            image_width, image_height = self.base_image.size
+            scale, _offset_x, _offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
+            if scale > 0:
+                tolerance = min(72, max(tolerance, int(round(11 / scale))))
+        return path_distance >= 40 and self.distance_between_points(point, start_point) <= tolerance
 
     def close_contour(self):
+        self.preview_update_timer.stop()
+        self.closing_contour_preview = False
         self.fill_contour()
         self.mask_version += 1
         self.invalidate_render_cache()
         self.drawing = False
         self.contour_points = []
 
+    def preview_then_close_contour(self):
+        if not self.drawing or len(self.contour_points) < 3:
+            return
+        self.closing_contour_preview = True
+        self.request_preview_update(immediate=True)
+        QTimer.singleShot(35, self.finish_pending_contour_close)
+
+    def finish_pending_contour_close(self):
+        if not self.closing_contour_preview:
+            return
+        self.close_contour()
+        self.update_preview()
+
     def reset_transient_drawing(self):
+        self.preview_update_timer.stop()
+        self.closing_contour_preview = False
         self.drawing = False
         self.contour_points = []
         self.stroke_points = []

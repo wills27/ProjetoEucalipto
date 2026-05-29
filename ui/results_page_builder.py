@@ -9,15 +9,17 @@ from PyQt6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
-    QSpinBox,
-    QTableWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
     QHeaderView,
     QSizePolicy,
 )
 
 from services.paths import dataset_images_dir, relative_to_project
+from ui.widgets import AnnotationPreviewLabel
+from ui.tables.results_images_table import ResultsImagesTable
 
 
 class ResultsPageBuilderMixin:
@@ -38,31 +40,59 @@ class ResultsPageBuilderMixin:
         self.pred_input = QLineEdit(relative_to_project(dataset_images_dir(self.config), self.config))
         self.pred_output = QLineEdit(self.config["predictions_dir"])
         self.pred_output.setReadOnly(True)
-        self.pred_padding = QSpinBox()
-        self.pred_padding.setRange(0, 2048)
-        self.pred_padding.setValue(int(self.config["padding_pixels"]))
+        self.pred_padding = QLineEdit(str(self.config["padding_pixels"]))
         self.pred_diameter = QLineEdit(str(self.config["diameter"]))
         self.pred_cellprob = QLineEdit(str(self.config["cellprob_threshold"]))
         self.pred_flow = QLineEdit(str(self.config["flow_threshold"]))
-        self.pred_padding.setMinimumWidth(60)
-        for field in [self.pred_diameter, self.pred_cellprob, self.pred_flow]:
+        for field in [self.pred_padding, self.pred_diameter, self.pred_cellprob, self.pred_flow]:
             field.setMinimumWidth(64)
         self.results_calibration_label = QLabel("Calibracao: nao definida")
         self.results_calibration_label.setObjectName("hint")
 
         params_row = QWidget()
-        params_layout = QHBoxLayout(params_row)
+        params_layout = QVBoxLayout(params_row)
         params_layout.setContentsMargins(0, 0, 0, 0)
-        params_layout.setSpacing(8)
-        for label, field in [
-            ("Padding", self.pred_padding),
-            ("Diametro", self.pred_diameter),
-            ("Cell prob", self.pred_cellprob),
-            ("Flow", self.pred_flow),
-        ]:
-            params_layout.addWidget(QLabel(label))
-            params_layout.addWidget(field)
-        params_layout.addStretch()
+        params_layout.setSpacing(6)
+
+        diameter_row = QWidget()
+        diameter_layout = QHBoxLayout(diameter_row)
+        diameter_layout.setContentsMargins(0, 0, 0, 0)
+        diameter_layout.setSpacing(8)
+        diameter_label = QLabel("Diametro")
+        diameter_label.setObjectName("largeText")
+        self.pred_diameter.setMinimumWidth(96)
+        diameter_layout.addWidget(diameter_label)
+        diameter_layout.addWidget(self.pred_diameter)
+        diameter_layout.addStretch()
+        params_layout.addWidget(diameter_row)
+
+        self.advanced_prediction_button = QToolButton()
+        self.advanced_prediction_button.setText("Avancados")
+        self.advanced_prediction_button.setArrowType(Qt.ArrowType.DownArrow)
+        self.advanced_prediction_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.advanced_prediction_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        advanced_menu = QMenu(self.advanced_prediction_button)
+        advanced_widget = QWidget()
+        advanced_params_layout = QGridLayout(advanced_widget)
+        advanced_params_layout.setContentsMargins(10, 8, 10, 8)
+        advanced_params_layout.setHorizontalSpacing(8)
+        advanced_params_layout.setVerticalSpacing(6)
+        for row, (label, field) in enumerate(
+            [
+                ("Padding", self.pred_padding),
+                ("Cell prob", self.pred_cellprob),
+                ("Flow", self.pred_flow),
+            ]
+        ):
+            advanced_params_layout.addWidget(QLabel(label), row, 0)
+            advanced_params_layout.addWidget(field, row, 1)
+        advanced_params_layout.setColumnStretch(1, 1)
+        advanced_action = QWidgetAction(advanced_menu)
+        advanced_action.setDefaultWidget(advanced_widget)
+        advanced_menu.addAction(advanced_action)
+        self.advanced_prediction_button.setMenu(advanced_menu)
+        params_layout.addWidget(self.advanced_prediction_button)
 
         self.prediction_model_combo = QComboBox()
         self.prediction_model_combo.currentIndexChanged.connect(self.on_prediction_model_changed)
@@ -110,11 +140,21 @@ class ResultsPageBuilderMixin:
         self.result_progress_bar.setTextVisible(True)
         model_layout.addWidget(self.result_progress_label, 4, 1)
         model_layout.addWidget(self.result_progress_bar, 5, 1)
-        left_column.addWidget(model_box)
-
         left = self.panel("Imagens")
         left_layout = QVBoxLayout(left)
-        self.result_images_table = QTableWidget(0, 4)
+        self.result_images_table = ResultsImagesTable(
+            {
+                "import": self.open_prediction_image_import_dialog,
+                "refresh": self.refresh_analysis_images,
+                "generate_current": self.run_results_for_current_image,
+                "generate_selected": self.run_results_for_context_images,
+                "edit_mask": self.open_selected_result_mask_editor,
+                "recalc_metrics": self.run_metrics_for_current_result_image,
+                "remove": self.remove_context_result_images,
+            },
+            0,
+            4,
+        )
         self.result_images_table.setHorizontalHeaderLabels(["Usar", "Imagem", "Overlay", "Metricas"])
         self.result_images_table.verticalHeader().setVisible(False)
         self.result_images_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -136,13 +176,8 @@ class ResultsPageBuilderMixin:
         self.results_list_status.setObjectName("hint")
         self.results_list_status.setWordWrap(True)
         left_layout.addWidget(self.results_list_status)
-        result_actions = QHBoxLayout()
-        self.add_button(result_actions, "Importar imagens", self.open_prediction_image_import_dialog)
-        self.add_button(result_actions, "Recarregar imagens", self.refresh_analysis_images)
-        self.add_button(result_actions, "Remover imagem", self.remove_selected_result_image)
-        result_actions.addStretch()
-        left_layout.addLayout(result_actions)
         left_column.addWidget(left, 1)
+        left_column.addWidget(model_box)
         layout.addLayout(left_column, 0)
 
         center = self.panel("Visualizador")
@@ -165,7 +200,13 @@ class ResultsPageBuilderMixin:
         self.add_button(mode_layout, "Editar mascara", self.open_selected_result_mask_editor)
         self.add_button(mode_layout, "Recalcular metrica", self.run_metrics_for_current_result_image, primary=True)
         center_layout.addLayout(mode_layout)
-        self.preview_label = QLabel("Selecione uma imagem.")
+        self.preview_label = AnnotationPreviewLabel(
+            None,
+            None,
+            None,
+            double_click_callback=self.open_selected_result_mask_editor,
+            draw_button=None,
+        )
         self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(320, 240)

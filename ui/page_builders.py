@@ -26,6 +26,7 @@ from ui.widgets import AnnotationPreviewLabel
 class UiBuilderMixin:
     def build_ui(self):
         root = QWidget()
+        root.setObjectName("appRoot")
         self.setCentralWidget(root)
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(14, 14, 14, 14)
@@ -55,6 +56,7 @@ class UiBuilderMixin:
             self.nav_buttons.append(button)
             sidebar_layout.addWidget(button)
             page = QWidget()
+            page.setObjectName("page")
             builder(page)
             self.stack.addWidget(page)
 

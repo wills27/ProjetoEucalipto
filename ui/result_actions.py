@@ -195,13 +195,45 @@ class ResultActionsMixin:
             return []
         return self.checked_result_image_stems()
 
+    def context_result_image_stems(self):
+        if not hasattr(self, "result_images_table"):
+            return []
+
+        checked_stems = self.checked_result_image_stems()
+        if checked_stems:
+            return checked_stems
+
+        stems = []
+        selected_rows = sorted({index.row() for index in self.result_images_table.selectedIndexes()})
+        for row in selected_rows:
+            stem = self.result_table_stem(row)
+            if stem and stem not in stems:
+                stems.append(stem)
+        if stems:
+            return stems
+
+        stem = self.current_result_image_stem()
+        return [stem] if stem else []
+
+    def run_results_for_context_images(self):
+        stems = self.context_result_image_stems()
+        if not stems:
+            QMessageBox.information(self, "Gerar resultados", "Selecione uma ou mais imagens na tabela.")
+            return
+        self.run_results(stems)
+
+    def remove_context_result_images(self):
+        self.remove_result_images(self.context_result_image_stems())
+
     def remove_selected_result_image(self):
+        self.remove_result_images(self.selected_result_image_stems())
+
+    def remove_result_images(self, image_stems):
         if not hasattr(self, "result_images_table"):
             return
 
-        image_stems = self.selected_result_image_stems()
         if not image_stems:
-            QMessageBox.information(self, "Remover imagem", "Marque uma ou mais imagens na tabela de resultados.")
+            QMessageBox.information(self, "Remover imagem", "Selecione ou marque uma ou mais imagens na tabela.")
             return
 
         image_label = image_stems[0] if len(image_stems) == 1 else f"{len(image_stems)} imagens"

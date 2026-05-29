@@ -234,9 +234,7 @@ class AnnotationEditorDialog(QDialog):
         if self.current_image is None or self.current_pixmap is None:
             return
         width, height = self.current_image.size
-        viewport_size = self.scroll_area.viewport().size()
-        fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
-        scale = max(0.05, fit_scale * self.zoom)
+        scale = self.preview_scale_for_size((width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
         pixmap = self.current_pixmap.scaled(
@@ -251,6 +249,12 @@ class AnnotationEditorDialog(QDialog):
         self.preview_label._display_offset_x = (self.preview_label.width() - pixmap.width()) / 2
         self.preview_label._display_offset_y = (self.preview_label.height() - pixmap.height()) / 2
         self.preview_label.setPixmap(pixmap)
+
+    def preview_scale_for_size(self, image_size):
+        width, height = image_size
+        viewport_size = self.scroll_area.viewport().size()
+        fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
+        return max(0.05, fit_scale * self.zoom)
 
     def _panel(self, title):
         box = QGroupBox(title)

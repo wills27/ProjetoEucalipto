@@ -63,7 +63,7 @@ class ModelPresenterMixin:
         self.predict_model_label.setText(self.config["active_model"] or "Nenhum modelo selecionado")
         self.pred_input.setText(relative_to_project(dataset_images_dir(self.config), self.config))
         self.pred_output.setText(self.config["predictions_dir"])
-        self.pred_padding.setValue(int(self.config["padding_pixels"]))
+        self.pred_padding.setText(str(self.config["padding_pixels"]))
         self.pred_diameter.setText(str(self.config["diameter"]))
         if hasattr(self, "dataset_prediction_diameter"):
             self.dataset_prediction_diameter.setText(str(self.config["diameter"]))
