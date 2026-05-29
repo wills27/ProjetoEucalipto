@@ -47,8 +47,6 @@ def dataset_selection_summary_text(entries, visible_count):
         f"Visiveis: {visible_count}\n"
         f"Pares validos: {summary['valid']}\n"
         f"Selecionadas: {summary['selected']}\n"
-        f"Sem cat./Treino/Val/Teste/Auto: "
-        f"{groups['uncategorized']}/{groups['train']}/{groups['val']}/{groups['test']}/{groups['auto']}\n"
         f"Sem mascara: {summary['problems']}"
     )
 

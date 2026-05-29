@@ -7,8 +7,23 @@ from PIL import Image
 
 from services.conversion_scan import IMAGE_EXTENSIONS
 from services.constants import SUPPORTED_CONVERSION_EXTENSIONS
-from services.prediction_import import image_array_to_grayscale
-from services.prediction_import import path_matches_keyword
+from services.prediction_import import available_import_destination, clean_import_name_part, image_array_to_grayscale, path_matches_keyword
+
+
+def dataset_import_output_stem(source_path, source_root=None, use_folder_prefix=False):
+    source_path = Path(source_path)
+    stem = source_path.stem[:-4] if source_path.stem.endswith("_seg") else source_path.stem
+    if not use_folder_prefix or source_root is None:
+        return clean_import_name_part(stem)
+
+    parts = []
+    try:
+        relative_parent = source_path.parent.relative_to(source_root)
+        parts = [part for part in relative_parent.parts if part not in {"", "."}]
+    except ValueError:
+        parts = []
+    parts.append(stem)
+    return "_".join(clean_import_name_part(part) for part in parts if part)
 
 
 def import_dataset_folder_contents(
@@ -18,6 +33,8 @@ def import_dataset_folder_contents(
     convert_to_grayscale=False,
     recursive=True,
     keyword="",
+    use_folder_prefix=False,
+    progress_callback=None,
 ):
     target_dir.mkdir(parents=True, exist_ok=True)
     mask_target_dir = mask_target_dir or target_dir
@@ -29,21 +46,56 @@ def import_dataset_folder_contents(
     skipped = 0
     errors = []
     image_candidates = {}
+    mask_sources = []
 
-    source_paths = source_dir.rglob("*") if recursive else source_dir.iterdir()
+    source_paths = list(source_dir.rglob("*") if recursive else source_dir.iterdir())
     for src in sorted(source_paths, key=lambda path: str(path).lower()):
         if not src.is_file():
             continue
-
         if path_matches_keyword(src, keyword):
             skipped += 1
             continue
 
         if src.name.endswith("_seg.npy"):
-            # convert _seg.npy (dict with 'masks') to _masks.tif
-            try:
+            mask_sources.append(src)
+            continue
+
+        if src.stem.endswith("_masks"):
+            if src.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            mask_sources.append(src)
+            continue
+
+        if src.stem.endswith("_pred_mask"):
+            continue
+
+        if src.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+
+        dst_stem = dataset_import_output_stem(src, source_dir, use_folder_prefix)
+        current = image_candidates.get(dst_stem)
+        if current is None:
+            image_candidates[dst_stem] = src
+            continue
+
+        current_is_tif = current.suffix.lower() in {".tif", ".tiff"}
+        src_is_tif = src.suffix.lower() in {".tif", ".tiff"}
+        if src_is_tif and not current_is_tif:
+            image_candidates[dst_stem] = src
+
+    total_steps = len(mask_sources) + len(image_candidates)
+    current_step = 0
+
+    def report_progress(detail):
+        if progress_callback:
+            progress_callback(current_step, total_steps or 1, detail)
+
+    for src in sorted(mask_sources, key=lambda path: str(path).lower()):
+        current_step += 1
+        report_progress(f"Importando mascara: {src.name}")
+        try:
+            if src.name.endswith("_seg.npy"):
                 data = np.load(src, allow_pickle=True)
-                # data may be an array or a dict-like object
                 masks = None
                 if hasattr(data, "item"):
                     try:
@@ -53,7 +105,6 @@ def import_dataset_folder_contents(
                     if isinstance(obj, dict) and "masks" in obj:
                         masks = obj.get("masks")
                 if masks is None:
-                    # fallback: try to interpret the file as a plain array
                     try:
                         masks = np.asarray(data)
                     except Exception:
@@ -64,10 +115,9 @@ def import_dataset_folder_contents(
                     errors.append(f"{src}: no 'masks' found")
                     continue
 
-                base_stem = src.stem[:-4] if src.stem.endswith("_seg") else src.stem
-                dst = mask_target_dir / f"{base_stem}_masks.tif"
+                dst_stem = dataset_import_output_stem(src, source_dir, use_folder_prefix)
+                dst = mask_target_dir / f"{dst_stem}_masks.tif"
                 if dst.exists():
-                    # already have a tif mask, remove seg if present
                     try:
                         src.unlink()
                     except Exception:
@@ -75,74 +125,50 @@ def import_dataset_folder_contents(
                     skipped += 1
                     continue
 
-                # ensure array type
                 mask_arr = np.asarray(masks).astype(np.uint16)
                 tiff.imwrite(dst, mask_arr, compression="zlib")
-                # remove original seg file to enforce TIFF standard
                 try:
                     src.unlink()
                 except Exception:
                     pass
                 masks_converted += 1
-            except Exception as exc:
-                skipped += 1
-                errors.append(f"{src}: {exc}")
-            continue
-
-        if src.stem.endswith("_masks"):
-            if src.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
-            dst = mask_target_dir / src.name
+
+            dst_stem = dataset_import_output_stem(src, source_dir, use_folder_prefix)
+            dst = mask_target_dir / f"{dst_stem}{src.suffix.lower()}"
             if dst.exists():
                 skipped += 1
                 continue
             shutil.copy2(src, dst)
             copied += 1
-            continue
-
-        if src.stem.endswith("_pred_mask"):
-            continue
-
-        if src.suffix.lower() not in IMAGE_EXTENSIONS:
-            continue
-
-        current = image_candidates.get(src.stem)
-        if current is None:
-            image_candidates[src.stem] = src
-            continue
-
-        current_is_tif = current.suffix.lower() in {".tif", ".tiff"}
-        src_is_tif = src.suffix.lower() in {".tif", ".tiff"}
-        if src_is_tif and not current_is_tif:
-            image_candidates[src.stem] = src
-
-    for src in sorted(image_candidates.values()):
-        if src.suffix.lower() in {".tif", ".tiff"}:
-            dst = target_dir / src.name
-            if dst.exists():
-                skipped += 1
-                continue
-            if convert_to_grayscale:
-                image_array = tiff.imread(src)
-                image_array = image_array_to_grayscale(image_array)
-                tiff.imwrite(dst, image_array, compression="zlib")
-            else:
-                shutil.copy2(src, dst)
-            copied += 1
-            continue
-
-        dst = target_dir / f"{src.stem}.tif"
-        if dst.exists():
+        except Exception as exc:
             skipped += 1
-            continue
+            errors.append(f"{src}: {exc}")
+
+    used_destinations = set()
+    for dst_stem, src in sorted(image_candidates.items(), key=lambda item: str(item[1]).lower()):
+        current_step += 1
+        report_progress(f"Importando imagem: {src.name}")
+        destination = available_import_destination(target_dir, dst_stem, used_destinations)
+        used_destinations.add(destination.name.lower())
 
         try:
+            if src.suffix.lower() in {".tif", ".tiff"}:
+                if convert_to_grayscale:
+                    image_array = tiff.imread(src)
+                    image_array = image_array_to_grayscale(image_array)
+                    tiff.imwrite(destination, image_array, compression="zlib")
+                else:
+                    shutil.copy2(src, destination)
+                copied += 1
+                continue
+
             with Image.open(src) as image:
                 if convert_to_grayscale:
                     image = image.convert("L")
                 elif image.mode == "P":
                     image = image.convert("RGB")
-                tiff.imwrite(dst, np.asarray(image), compression="zlib")
+                tiff.imwrite(destination, np.asarray(image), compression="zlib")
             converted += 1
         except Exception as exc:
             skipped += 1
@@ -157,7 +183,7 @@ def import_dataset_folder_contents(
     }
 
 
-def convert_dataset_images_to_tif(input_dir):
+def convert_dataset_images_to_tif(input_dir, progress_callback=None):
     input_dir.mkdir(parents=True, exist_ok=True)
 
     converted = 0
@@ -165,19 +191,21 @@ def convert_dataset_images_to_tif(input_dir):
     failed = 0
     errors = []
 
-    for image_path in sorted(input_dir.iterdir()):
-        if not image_path.is_file():
-            continue
-        if image_path.name.endswith("_seg.npy") or image_path.stem.endswith("_masks") or image_path.stem.endswith("_pred_mask"):
-            continue
+    image_paths = [
+        image_path
+        for image_path in sorted(input_dir.iterdir())
+        if image_path.is_file()
+        and image_path.suffix.lower() in SUPPORTED_CONVERSION_EXTENSIONS
+        and image_path.suffix.lower() not in {".tif", ".tiff"}
+        and not image_path.name.endswith("_seg.npy")
+        and not image_path.stem.endswith("_masks")
+        and not image_path.stem.endswith("_pred_mask")
+    ]
 
-        suffix = image_path.suffix.lower()
-        if suffix not in SUPPORTED_CONVERSION_EXTENSIONS:
-            continue
-
-        if suffix in {".tif", ".tiff"}:
-            skipped += 1
-            continue
+    total = len(image_paths)
+    for index, image_path in enumerate(image_paths, start=1):
+        if progress_callback:
+            progress_callback(index, total or 1, f"Convertendo imagem: {image_path.name}")
 
         tif_path = image_path.with_suffix(".tif")
         if tif_path.exists():

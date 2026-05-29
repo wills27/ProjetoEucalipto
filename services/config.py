@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
         "source": "",
         "source_image": "",
     },
+    "import_dataset_prefix_folders": False,
 }
 
 

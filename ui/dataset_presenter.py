@@ -1,6 +1,6 @@
 ﻿from pathlib import Path
 
-from PyQt6.QtCore import QThread, Qt
+from PyQt6.QtCore import QItemSelectionModel, QThread, Qt
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QComboBox, QHeaderView, QMessageBox, QTableWidgetItem
 
@@ -18,10 +18,9 @@ from workers.dataset_scan_worker import DatasetScanWorker
 
 
 DATASET_NUMBER_COL = 0
-DATASET_INCLUDE_COL = 1
-DATASET_GROUP_COL = 2
-DATASET_IMAGE_COL = 3
-DATASET_STATUS_COL = 4
+DATASET_GROUP_COL = 1
+DATASET_IMAGE_COL = 2
+DATASET_STATUS_COL = 3
 
 
 class DatasetPresenterMixin:
@@ -95,6 +94,7 @@ class DatasetPresenterMixin:
 
         self.dataset_pairs_table.setUpdatesEnabled(False)
         self.dataset_pairs_table.blockSignals(True)
+        self.bulk_updating_dataset_selection = True
         try:
             self.dataset_pairs_table.setRowCount(len(rows))
             for row_index, row in enumerate(rows):
@@ -108,14 +108,6 @@ class DatasetPresenterMixin:
                 number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 number_item.setData(Qt.ItemDataRole.UserRole, row)
                 self.dataset_pairs_table.setItem(row_index, DATASET_NUMBER_COL, number_item)
-
-                include_item = QTableWidgetItem()
-                include_item.setFlags(include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                if not can_include:
-                    include_item.setFlags(include_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                include_item.setCheckState(Qt.CheckState.Checked if include else Qt.CheckState.Unchecked)
-                include_item.setData(Qt.ItemDataRole.UserRole, row)
-                self.dataset_pairs_table.setItem(row_index, DATASET_INCLUDE_COL, include_item)
 
                 group_combo = QComboBox()
                 group_options = [
@@ -144,11 +136,22 @@ class DatasetPresenterMixin:
                     item.setData(Qt.ItemDataRole.UserRole, row)
                     self.dataset_pairs_table.setItem(row_index, col + DATASET_IMAGE_COL, item)
                 self.dataset_pairs_table.setRowHeight(row_index, 30)
+
+            for row_index, row in enumerate(rows):
+                saved = plan.get(row["image"], {})
+                can_include = row["status"] in {"Com mascara", "Sem mascara"}
+                include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
+                if include:
+                    index = self.dataset_pairs_table.model().index(row_index, DATASET_IMAGE_COL)
+                    self.dataset_pairs_table.selectionModel().select(
+                        index,
+                        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                    )
         finally:
+            self.bulk_updating_dataset_selection = False
             self.dataset_pairs_table.blockSignals(False)
             self.dataset_pairs_table.setUpdatesEnabled(True)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_NUMBER_COL, QHeaderView.ResizeMode.ResizeToContents)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_INCLUDE_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_GROUP_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_IMAGE_COL, QHeaderView.ResizeMode.Stretch)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_STATUS_COL, QHeaderView.ResizeMode.ResizeToContents)
@@ -160,7 +163,11 @@ class DatasetPresenterMixin:
                     if row["image"] == selected_image:
                         selected_row = row_index
                         break
-            self.dataset_pairs_table.selectRow(selected_row)
+            current_index = self.dataset_pairs_table.model().index(selected_row, DATASET_IMAGE_COL)
+            self.dataset_pairs_table.selectionModel().setCurrentIndex(
+                current_index,
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
             self.show_selected_dataset_pair()
         else:
             self.dataset_preview_label.setText("Nenhuma imagem encontrada.")
@@ -193,17 +200,6 @@ class DatasetPresenterMixin:
         can_include = row_data["status"] in {"Com mascara", "Sem mascara"}
 
         self.dataset_pairs_table.blockSignals(True)
-        include_item = self.dataset_pairs_table.item(target_row, DATASET_INCLUDE_COL)
-        if include_item is not None:
-            flags = include_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            if can_include:
-                flags |= Qt.ItemFlag.ItemIsEnabled
-            else:
-                flags &= ~Qt.ItemFlag.ItemIsEnabled
-                include_item.setCheckState(Qt.CheckState.Unchecked)
-            include_item.setFlags(flags)
-            include_item.setData(Qt.ItemDataRole.UserRole, row_data)
-
         group_combo = self.dataset_pairs_table.cellWidget(target_row, DATASET_GROUP_COL)
         if group_combo:
             group_combo.setEnabled(can_include)
@@ -244,7 +240,9 @@ class DatasetPresenterMixin:
         save_plan(dataset_plan_path(self.config), entries)
         self.update_dataset_selection_summary()
 
-    def on_dataset_table_item_changed(self, item):
+    def on_dataset_table_selection_changed(self):
+        if getattr(self, "bulk_updating_dataset_selection", False):
+            return
         self.save_dataset_plan_from_table()
 
     def on_dataset_group_changed(self, row):
@@ -269,7 +267,11 @@ class DatasetPresenterMixin:
             return
         for row in rows:
             if not self.dataset_pairs_table.isRowHidden(row):
-                self.dataset_pairs_table.selectRow(row)
+                index = self.dataset_pairs_table.model().index(row, DATASET_IMAGE_COL)
+                self.dataset_pairs_table.selectionModel().select(
+                    index,
+                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                )
         self.update_dataset_selection_summary()
 
     def visible_dataset_rows(self):
@@ -296,15 +298,20 @@ class DatasetPresenterMixin:
         self.dataset_pairs_table.clearSelection()
         for row in rows:
             if row not in selected_rows:
-                self.dataset_pairs_table.selectRow(row)
+                index = self.dataset_pairs_table.model().index(row, DATASET_IMAGE_COL)
+                self.dataset_pairs_table.selectionModel().select(
+                    index,
+                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                )
         self.update_dataset_selection_summary()
 
-    def move_selected_dataset_rows_to_group(self):
+    def move_selected_dataset_rows_to_group(self, group=None):
         rows = self.selected_dataset_rows()
         if not rows:
             QMessageBox.information(self, "Mover grupo", "Selecione uma ou mais imagens na tabela.")
             return
-        group = self.dataset_move_group_combo.currentData()
+        if group is None:
+            group = self.dataset_move_group_combo.currentData()
         changed = 0
         self.dataset_pairs_table.blockSignals(True)
         self.bulk_updating_dataset_groups = True
@@ -342,14 +349,14 @@ class DatasetPresenterMixin:
             "group": self.dataset_group_filter.currentData() if hasattr(self, "dataset_group_filter") else "",
             "include": self.dataset_include_filter.currentData() if hasattr(self, "dataset_include_filter") else "",
         }
+        selected_rows = set(self.selected_dataset_rows())
         first_visible = -1
         for row in range(self.dataset_pairs_table.rowCount()):
             row_data = self.dataset_pair_row_data(row) or {}
             group_combo = self.dataset_pairs_table.cellWidget(row, DATASET_GROUP_COL)
             group_text = group_combo.currentText().lower() if group_combo else ""
             group_value = group_combo.currentData() if group_combo and group_combo.currentData() else ""
-            include_item = self.dataset_pairs_table.item(row, DATASET_INCLUDE_COL)
-            is_selected = include_item is not None and include_item.checkState() == Qt.CheckState.Checked
+            is_selected = row in selected_rows and row_data.get("status") in {"Com mascara", "Sem mascara"}
             visible = dataset_row_matches_filters(
                 row + 1,
                 row_data,
@@ -364,7 +371,11 @@ class DatasetPresenterMixin:
         if first_visible >= 0 and self.dataset_pairs_table.currentRow() >= 0:
             current_row = self.dataset_pairs_table.currentRow()
             if self.dataset_pairs_table.isRowHidden(current_row):
-                self.dataset_pairs_table.selectRow(first_visible)
+                current_index = self.dataset_pairs_table.model().index(first_visible, DATASET_IMAGE_COL)
+                self.dataset_pairs_table.selectionModel().setCurrentIndex(
+                    current_index,
+                    QItemSelectionModel.SelectionFlag.NoUpdate,
+                )
         self.update_dataset_selection_summary()
 
     def clear_dataset_filters(self):
@@ -389,17 +400,18 @@ class DatasetPresenterMixin:
 
     def dataset_plan_entries_from_table(self):
         entries = []
+        selected_rows = set(self.selected_dataset_rows())
         for row in range(self.dataset_pairs_table.rowCount()):
-            include_item = self.dataset_pairs_table.item(row, DATASET_INCLUDE_COL)
             status_item = self.dataset_pairs_table.item(row, DATASET_STATUS_COL)
             group_combo = self.dataset_pairs_table.cellWidget(row, DATASET_GROUP_COL)
             image_item = self.dataset_pairs_table.item(row, DATASET_IMAGE_COL)
-            if include_item is None or status_item is None or image_item is None:
+            if status_item is None or image_item is None:
                 continue
+            selected = row in selected_rows and status_item.text() in {"Com mascara", "Sem mascara"}
             entries.append(
                 dataset_plan_entry(
                     image_item.text(),
-                    include_item.checkState() == Qt.CheckState.Checked,
+                    selected,
                     group_combo.currentData() if group_combo else "uncategorized",
                     status_item.text(),
                 )
@@ -423,22 +435,46 @@ class DatasetPresenterMixin:
     def remove_dataset_plan_entries(self, image_names):
         return remove_dataset_entries_from_plan(dataset_plan_path(self.config), image_names)
 
+    def dataset_delete_confirmation(self, image_names, targets):
+        count = len(image_names)
+        if count == 1:
+            title = "Deletar imagem"
+            summary = f"Deletar a imagem {image_names[0]}?"
+            details = "\n".join(f"- {path.name}" for path in targets)
+        elif count <= 3:
+            title = "Deletar imagens"
+            summary = f"Deletar estas {count} imagens?\n\n" + "\n".join(f"- {name}" for name in image_names)
+            details = "\n".join(f"- {path.name}" for path in targets)
+        else:
+            title = "Deletar imagens"
+            summary = f"Deletar {count} imagens?"
+            details = f"Arquivos que serao removidos:\n" + "\n".join(f"- {path.name}" for path in targets)
+        return title, summary, details
+
     def delete_selected_dataset_pair(self):
-        row = self.selected_dataset_pair_row()
-        row_data = self.dataset_pair_row_data(row)
-        if not row_data:
-            QMessageBox.information(self, "Deletar conjunto", "Selecione uma imagem na tabela para deletar.")
+        rows = self.selected_dataset_rows()
+        if not rows:
+            row = self.selected_dataset_pair_row()
+            rows = [row] if row >= 0 else []
+        if not rows:
+            QMessageBox.information(self, "Deletar conjunto", "Selecione uma ou mais imagens na tabela para deletar.")
             return
 
-        image_name = row_data["image"]
-        targets = self.dataset_pair_removal_targets(row_data)
-        target_names = "\n".join(f"- {path.name}" for path in targets)
+        row_data_list = [self.dataset_pair_row_data(row) for row in rows]
+        row_data_list = [row_data for row_data in row_data_list if row_data]
+        if not row_data_list:
+            QMessageBox.information(self, "Deletar conjunto", "Nenhuma imagem selecionada pode ser deletada.")
+            return
+
+        image_names = [row_data["image"] for row_data in row_data_list]
+        targets = [path for row_data in row_data_list for path in self.dataset_pair_removal_targets(row_data)]
+        title, summary, details = self.dataset_delete_confirmation(image_names, targets)
         reply = QMessageBox.question(
             self,
-            "Deletar conjunto",
+            title,
             (
-                f"Deletar a imagem e a mascara de {image_name}?\n\n"
-                f"Arquivos que serao removidos:\n{target_names}\n\n"
+                f"{summary}\n\n"
+                f"{details}\n\n"
                 "Essa acao nao pode ser desfeita."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -460,20 +496,26 @@ class DatasetPresenterMixin:
             except OSError as exc:
                 failed_paths.append(f"{target_path.name}: {exc}")
 
-        removed_plan_entries = self.remove_dataset_plan_entries({image_name})
+        removed_plan_entries = self.remove_dataset_plan_entries(set(image_names))
         self.pending_annotation_image_name = None
 
         self.dataset_pairs_table.blockSignals(True)
-        self.dataset_pairs_table.removeRow(row)
+        for row in sorted(rows, reverse=True):
+            if 0 <= row < self.dataset_pairs_table.rowCount():
+                self.dataset_pairs_table.removeRow(row)
         self.dataset_pairs_table.blockSignals(False)
         if self.dataset_pairs_table.rowCount() > 0:
-            next_row = min(row, self.dataset_pairs_table.rowCount() - 1)
-            self.dataset_pairs_table.selectRow(next_row)
+            next_row = min(rows[0], self.dataset_pairs_table.rowCount() - 1)
+            current_index = self.dataset_pairs_table.model().index(next_row, DATASET_IMAGE_COL)
+            self.dataset_pairs_table.selectionModel().setCurrentIndex(
+                current_index,
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
         self.update_dataset_selection_summary()
 
         self.append_log(
             f"\n>>> Deletar conjunto imagem/mascara\n"
-            f"Imagem: {image_name}\n"
+            f"Imagens: {', '.join(image_names)}\n"
             f"Arquivos removidos: {len(deleted_paths)}\n"
             f"Arquivos ausentes: {len(missing_paths)}\n"
             f"Entradas removidas do plano: {removed_plan_entries}\n"

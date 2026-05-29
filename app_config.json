@@ -14,6 +14,7 @@
     "source": "",
     "source_image": ""
   },
+  "import_dataset_prefix_folders": false,
   "import_results_grayscale": true,
   "import_dataset_recursive": true,
   "import_dataset_skip_keyword": "",

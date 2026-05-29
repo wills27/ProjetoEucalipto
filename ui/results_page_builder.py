@@ -153,9 +153,9 @@ class ResultsPageBuilderMixin:
                 "remove": self.remove_context_result_images,
             },
             0,
-            4,
+            3,
         )
-        self.result_images_table.setHorizontalHeaderLabels(["Usar", "Imagem", "Overlay", "Metricas"])
+        self.result_images_table.setHorizontalHeaderLabels(["Imagem", "Overlay", "Metricas"])
         self.result_images_table.verticalHeader().setVisible(False)
         self.result_images_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.result_images_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -163,14 +163,10 @@ class ResultsPageBuilderMixin:
         self.result_images_table.currentCellChanged.connect(
             lambda row, _col, _previous_row, _previous_col: self.show_result_table_row(row)
         )
-        self.result_images_table.itemChanged.connect(self.on_result_image_check_changed)
-        self.result_images_table.itemSelectionChanged.connect(self.sync_result_checkboxes_from_selection)
-        self.result_images_table.horizontalHeader().sectionClicked.connect(self.on_result_images_header_clicked)
         self.last_result_check_row = None
-        self.result_images_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.result_images_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.result_images_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.result_images_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.result_images_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.result_images_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.result_images_table, 1)
         self.results_list_status = QLabel()
         self.results_list_status.setObjectName("hint")

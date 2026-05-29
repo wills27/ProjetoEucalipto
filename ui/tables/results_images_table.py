@@ -11,7 +11,7 @@ class ResultsImagesTable(QTableWidget):
         row = self.rowAt(event.pos().y())
         if row >= 0 and not self.selectionModel().isRowSelected(row, self.rootIndex()):
             self.selectRow(row)
-            self.setCurrentCell(row, max(1, self.currentColumn()))
+            self.setCurrentCell(row, 0)
 
         menu = QMenu(self)
         import_action = menu.addAction("Importar imagens")
