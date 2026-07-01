@@ -1,7 +1,6 @@
 ﻿from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -94,18 +93,8 @@ class ResultsPageBuilderMixin:
         self.advanced_prediction_button.setMenu(advanced_menu)
         params_layout.addWidget(self.advanced_prediction_button)
 
-        self.prediction_model_combo = QComboBox()
-        self.prediction_model_combo.currentIndexChanged.connect(self.on_prediction_model_changed)
-
-        model_header = QWidget()
-        model_header_layout = QHBoxLayout(model_header)
-        model_header_layout.setContentsMargins(0, 0, 0, 0)
-        model_header_layout.setSpacing(8)
-        model_header_layout.addWidget(self.prediction_model_combo, 1)
-        self.add_button(model_header_layout, "Importar modelo", self.import_prediction_model)
-
-        model_layout.addWidget(QLabel("Modelo usado"), 0, 0)
-        model_layout.addWidget(model_header, 0, 1)
+        model_layout.addWidget(QLabel("Modelo"), 0, 0)
+        model_layout.addWidget(self.predict_model_label, 0, 1)
         model_layout.addWidget(QLabel("Parametros"), 1, 0)
         model_layout.addWidget(params_row, 1, 1)
         model_layout.addWidget(self.results_calibration_label, 2, 1)
@@ -113,19 +102,9 @@ class ResultsPageBuilderMixin:
         self.generate_results_button = self.add_button(
             predict_actions,
             "Gerar resultados",
-            self.run_missing_result_outputs,
+            self.run_results_for_selected_images,
             primary=True,
         )
-        results_menu = QMenu(self.generate_results_button)
-        all_images_action = results_menu.addAction("Todas as imagens")
-        current_image_action = results_menu.addAction("Imagem atual")
-        selected_images_action = results_menu.addAction("Imagens selecionadas")
-        missing_outputs_action = results_menu.addAction("Imagens sem resultado")
-        all_images_action.triggered.connect(lambda _checked=False: self.run_results())
-        current_image_action.triggered.connect(lambda _checked=False: self.run_results_for_current_image())
-        selected_images_action.triggered.connect(lambda _checked=False: self.run_results_for_selected_images())
-        missing_outputs_action.triggered.connect(lambda _checked=False: self.run_missing_result_outputs())
-        self.generate_results_button.setMenu(results_menu)
         view_results_button = self.add_button(predict_actions, "Visualizar resultados", self.open_results_viewer)
         view_results_button.setObjectName("accent")
         predict_actions.addStretch()
@@ -193,8 +172,6 @@ class ResultsPageBuilderMixin:
             self.view_buttons[mode] = button
             mode_layout.addWidget(button)
         mode_layout.addStretch()
-        self.add_button(mode_layout, "Editar mascara", self.open_selected_result_mask_editor)
-        self.add_button(mode_layout, "Recalcular metrica", self.run_metrics_for_current_result_image, primary=True)
         center_layout.addLayout(mode_layout)
         self.preview_label = AnnotationPreviewLabel(
             None,
@@ -208,4 +185,8 @@ class ResultsPageBuilderMixin:
         self.preview_label.setMinimumSize(320, 240)
         self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_layout.addWidget(self.preview_label, 1)
+        edit_mask_layout = QHBoxLayout()
+        edit_mask_layout.addStretch()
+        self.add_button(edit_mask_layout, "Editar mascara", self.open_selected_result_mask_editor)
+        center_layout.addLayout(edit_mask_layout)
         layout.addWidget(center, 1)

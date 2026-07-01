@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QVBoxLayout,
     QWidget,
@@ -20,12 +21,87 @@ from ui.loss_plot import LossPlotWidget
 
 
 class TrainingPageBuilderMixin:
-    def build_train_page(self, page):
+    def open_training_dialog(self):
+        if self.training_dialog is None:
+            self.training_dialog = QDialog(self)
+            self.training_dialog.setWindowTitle("Treinar modelo")
+            self.training_dialog.resize(1100, 760)
+            self._build_training_wizard(self.training_dialog)
+            if not self.config.get("active_model"):
+                self.train_model_name.setText(f"cpsam_{self.config['active_project']}_v1")
+        self.training_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self._go_to_training_wizard_page(0)
+        self.training_dialog.show()
+        self.training_dialog.raise_()
+        self.training_dialog.activateWindow()
+
+    def _build_training_wizard(self, dialog):
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.setContentsMargins(0, 0, 0, 0)
+        dialog_layout.setSpacing(0)
+
+        self._training_wizard_stack = QStackedWidget()
+        dialog_layout.addWidget(self._training_wizard_stack, 1)
+
+        # Passo 1: Dataset
+        dataset_page = QWidget()
+        dataset_layout = QVBoxLayout(dataset_page)
+        dataset_layout.setContentsMargins(14, 14, 14, 14)
+        dataset_layout.addWidget(self._dataset_section_container)
+        self._dataset_section_container.show()
+        self._training_wizard_stack.addWidget(dataset_page)
+
+        # Passo 2: Parametros de treino
+        params_page = QWidget()
+        self._build_train_params_page(params_page)
+        self._training_wizard_stack.addWidget(params_page)
+
+        # Passo 3: Progresso
+        progress_page = QWidget()
+        self._build_train_progress_page(progress_page)
+        self._training_wizard_stack.addWidget(progress_page)
+
+        # Barra de navegacao
+        nav_bar = QWidget()
+        nav_bar.setObjectName("wizardNav")
+        nav_layout = QHBoxLayout(nav_bar)
+        nav_layout.setContentsMargins(16, 10, 16, 10)
+        nav_layout.setSpacing(8)
+
+        self._wizard_back_button = QPushButton("← Voltar")
+        self._wizard_back_button.clicked.connect(self._wizard_go_back)
+        self._wizard_next_button = QPushButton("Próximo →")
+        self._wizard_next_button.clicked.connect(self._wizard_go_next)
+        self._wizard_train_button = QPushButton("Treinar ▶")
+        self._wizard_train_button.setObjectName("primary")
+        self._wizard_train_button.clicked.connect(self.run_training)
+
+        nav_layout.addWidget(self._wizard_back_button)
+        nav_layout.addStretch()
+        nav_layout.addWidget(self._wizard_next_button)
+        nav_layout.addWidget(self._wizard_train_button)
+        dialog_layout.addWidget(nav_bar)
+
+    def _go_to_training_wizard_page(self, index):
+        self._training_wizard_stack.setCurrentIndex(index)
+        self._wizard_back_button.setVisible(index == 1)
+        self._wizard_next_button.setVisible(index == 0)
+        self._wizard_train_button.setVisible(index == 1)
+
+    def _wizard_go_back(self):
+        current = self._training_wizard_stack.currentIndex()
+        if current > 0:
+            self._go_to_training_wizard_page(current - 1)
+
+    def _wizard_go_next(self):
+        current = self._training_wizard_stack.currentIndex()
+        if current < self._training_wizard_stack.count() - 1:
+            self._go_to_training_wizard_page(current + 1)
+
+    def _build_train_params_page(self, page):
         layout = QVBoxLayout(page)
         layout.setSpacing(12)
-
-        top_layout = QHBoxLayout()
-        top_layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
 
         form_box = self.panel("Novo modelo")
         form_layout = QGridLayout(form_box)
@@ -70,11 +146,16 @@ class TrainingPageBuilderMixin:
         form_layout.addWidget(self.train_base_model, 1, 1)
         form_layout.addWidget(QLabel("Parametros"), 2, 0)
         form_layout.addWidget(training_params, 2, 1)
-        train_button = QPushButton("Iniciar treinamento")
-        train_button.setObjectName("primary")
-        train_button.clicked.connect(self.run_training)
-        form_layout.addWidget(train_button, 3, 1)
-        top_layout.addWidget(form_box, 1)
+        layout.addWidget(form_box)
+        layout.addStretch()
+
+    def _build_train_progress_page(self, page):
+        layout = QVBoxLayout(page)
+        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(12)
 
         progress_box = self.panel("Status do treino")
         progress_layout = QVBoxLayout(progress_box)
@@ -158,16 +239,3 @@ class TrainingPageBuilderMixin:
         self.train_epochs.valueChanged.connect(lambda value: self.loss_plot.reset(value))
         loss_layout.addWidget(self.loss_plot, 1)
         layout.addWidget(loss_box, 1)
-
-    def open_training_dialog(self):
-        if self.training_dialog is None:
-            self.training_dialog = QDialog(self)
-            self.training_dialog.setWindowTitle("Treinar modelo")
-            self.training_dialog.resize(1100, 760)
-            self.build_train_page(self.training_dialog)
-            if not self.config.get("active_model"):
-                self.train_model_name.setText(f"cpsam_{self.config['active_project']}_v1")
-        self.training_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self.training_dialog.show()
-        self.training_dialog.raise_()
-        self.training_dialog.activateWindow()

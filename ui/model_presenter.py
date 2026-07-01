@@ -76,19 +76,7 @@ class ModelPresenterMixin:
             self.annotation_page.sync_from_config(self.config)
 
     def refresh_prediction_model_selector(self):
-        if not hasattr(self, "prediction_model_combo"):
-            return
-
-        models = list_model_names(self.config)
-        self.prediction_model_combo.blockSignals(True)
-        self.prediction_model_combo.clear()
-        for model_name in models:
-            self.prediction_model_combo.addItem(model_name, model_name)
-
-        active_model = self.config.get("active_model") or ""
-        index = self.prediction_model_combo.findData(active_model)
-        self.prediction_model_combo.setCurrentIndex(index if index >= 0 and models else -1)
-        self.prediction_model_combo.blockSignals(False)
+        self.refresh_home_model_selector()
 
     def refresh_home_model_selector(self):
         if not hasattr(self, "home_model_combo"):
@@ -110,14 +98,6 @@ class ModelPresenterMixin:
         if not hasattr(self, "home_model_combo"):
             return
         model_name = self.home_model_combo.currentData() or ""
-        if not model_name or model_name == self.config.get("active_model"):
-            return
-        self.set_active_model(model_name)
-
-    def on_prediction_model_changed(self, _index=None):
-        if not hasattr(self, "prediction_model_combo"):
-            return
-        model_name = self.prediction_model_combo.currentData() or ""
         if not model_name or model_name == self.config.get("active_model"):
             return
         self.set_active_model(model_name)

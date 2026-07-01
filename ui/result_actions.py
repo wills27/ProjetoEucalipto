@@ -112,6 +112,15 @@ class ResultActionsMixin:
                     legacy_path.unlink()
                 except OSError:
                     pass
+        for viewer_file in [
+            overlays_dir(self.config) / f"{stem}_viewer_overlay.png",
+            overlays_dir(self.config) / f"{stem}_viewer_index.json",
+        ]:
+            if viewer_file.exists():
+                try:
+                    viewer_file.unlink()
+                except OSError:
+                    pass
         self.runtime_overlay_ready_stems.add(stem)
         return overlay_path
 

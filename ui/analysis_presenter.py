@@ -253,6 +253,7 @@ class AnalysisPresenterMixin:
         self.analysis_cache.clear()
         self.analysis_render_cache.clear()
         self.analysis_pixmap_cache.clear()
+        self.viewer_render_cache.clear()
         self.clear_result_indexes()
 
     def clear_result_indexes(self):
@@ -273,8 +274,8 @@ class AnalysisPresenterMixin:
             mtime = 0
         return kind, str(path), mtime
 
-    def render_colored_id_overlay(self, image, mask, selected_label=None, label_texts=None):
-        return render_id_overlay(image, mask, selected_label=selected_label, label_texts=label_texts)
+    def render_colored_id_overlay(self, image, mask, selected_label=None, label_texts=None, centroids=None):
+        return render_id_overlay(image, mask, selected_label=selected_label, label_texts=label_texts, centroids=centroids)
 
     def overlay_colored_mask_on_image(self, image, mask, selected_label=None, alpha=118):
         return render_colored_mask_overlay(image, mask, selected_label=selected_label, alpha=alpha)

@@ -72,6 +72,7 @@ class CellposeWindow(
         self.analysis_cache = {}
         self.analysis_render_cache = {}
         self.analysis_pixmap_cache = {}
+        self.viewer_render_cache = {}
         self.result_entries_cache = None
         self.result_status_index = {}
         self.result_status_index_model = None

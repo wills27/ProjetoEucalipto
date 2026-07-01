@@ -1,7 +1,7 @@
 {
-  "active_project": "eucalipto",
+  "active_project": "Carol",
   "projects_dir": "",
-  "active_model": "",
+  "active_model": "cpsam_vasos_eucalipto_v2",
   "padding_pixels": 64,
   "diameter": 50.0,
   "cellprob_threshold": 0.0,

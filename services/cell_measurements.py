@@ -218,6 +218,7 @@ def build_summary_row(
     area_total_vasos,
     area_total_img,
     freq_vaso_50pct,
+    total_vasos_count,
     unit="",
     unit_per_pixel=0.0,
 ):
@@ -235,7 +236,7 @@ def build_summary_row(
 
     return {
         "filename": filename,
-        "cell_count": len(props_inteiros),
+        "cell_count": total_vasos_count,
         "painted_pixels": int(area_total_vasos),
         "painted_ratio_pct": float(round(fracao_area_vasos * 100, 3)),
         "freq_vaso_50pct": freq_vaso_50pct,
@@ -261,20 +262,22 @@ def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixe
 
     mask_inteiros = build_mask_inteiros(mask)
     props_inteiros = regionprops(mask_inteiros)
-    ellipse_by_label = compute_ellipse_minor_axis_by_label(mask_inteiros)
+    ellipse_by_label_inteiros = compute_ellipse_minor_axis_by_label(mask_inteiros)
 
     props_todos = regionprops(mask)
+    ellipse_by_label_todos = compute_ellipse_minor_axis_by_label(mask)
     area_total_vasos = sum(p.area for p in props_todos)
     area_total_img = H * W
 
-    measurements = build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit, unit_per_pixel)
+    measurements = build_measurement_rows(filename, props_todos, ellipse_by_label_todos, unit, unit_per_pixel)
     summary = build_summary_row(
         filename,
         props_inteiros,
-        ellipse_by_label,
+        ellipse_by_label_inteiros,
         area_total_vasos,
         area_total_img,
         freq_vaso_50pct,
+        len(props_todos),
         unit,
         unit_per_pixel,
     )

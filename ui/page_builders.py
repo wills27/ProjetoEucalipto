@@ -38,30 +38,53 @@ class UiBuilderMixin:
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(190)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setSpacing(6)
         body.addWidget(sidebar, 0)
+
+        project_label = QLabel("Projeto")
+        project_label.setObjectName("sidebarSection")
+        sidebar_layout.addWidget(project_label)
+        self.project_combo = QComboBox()
+        self.project_combo.currentTextChanged.connect(self.select_project)
+        sidebar_layout.addWidget(self.project_combo)
+
+        sidebar_layout.addSpacing(4)
+
+        model_label = QLabel("Modelo")
+        model_label.setObjectName("sidebarSection")
+        sidebar_layout.addWidget(model_label)
+        self.home_model_combo = QComboBox()
+        self.home_model_combo.currentIndexChanged.connect(self.on_home_model_changed)
+        sidebar_layout.addWidget(self.home_model_combo)
+
+        sidebar_layout.addSpacing(8)
+
+        self.add_button(sidebar_layout, "Novo Projeto", self.create_project)
+        self.add_button(sidebar_layout, "Abrir Projetos", self.choose_projects_folder)
+        self.add_button(sidebar_layout, "Importar Imagens", self.import_dataset_folder)
+        self.add_button(sidebar_layout, "Importar Modelo", self.import_prediction_model)
+
+        sidebar_layout.addStretch()
+        self.add_button(sidebar_layout, "Atualizar", self.refresh_all)
 
         self.stack = QStackedWidget()
         body.addWidget(self.stack, 1)
 
-        for label, builder in [
-            ("Inicio", self.build_project_page),
-            ("Resultados", self.build_results_page),
-        ]:
-            button = QPushButton(label)
-            button.setObjectName("nav")
-            button.clicked.connect(lambda checked=False, index=len(self.nav_buttons): self.set_page(index))
-            self.nav_buttons.append(button)
-            sidebar_layout.addWidget(button)
-            page = QWidget()
-            page.setObjectName("page")
-            builder(page)
-            self.stack.addWidget(page)
+        results_page = QWidget()
+        results_page.setObjectName("page")
+        self.build_results_page(results_page)
+        self.stack.addWidget(results_page)
 
-        sidebar_layout.addStretch()
-        self.add_button(sidebar_layout, "Atualizar", self.refresh_all)
+        # Dataset section criado aqui para inicializar self.dataset_* widgets;
+        # embed no wizard de treino ao abrir.
+        self._dataset_section_container = QWidget()
+        self._dataset_section_container.setObjectName("page")
+        _ds_layout = QVBoxLayout(self._dataset_section_container)
+        _ds_layout.setContentsMargins(0, 0, 0, 0)
+        self.build_dataset_section(_ds_layout)
 
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
@@ -78,40 +101,6 @@ class UiBuilderMixin:
 
         self.set_page(0)
         self.apply_style()
-
-    def build_project_page(self, page):
-        layout = QVBoxLayout(page)
-        layout.setSpacing(12)
-
-        project_box = self.panel("Projeto atual")
-        project_layout = QGridLayout(project_box)
-        project_layout.setContentsMargins(10, 8, 10, 10)
-        project_layout.setHorizontalSpacing(10)
-        project_layout.setVerticalSpacing(6)
-        self.project_combo = QComboBox()
-        self.project_combo.currentTextChanged.connect(self.select_project)
-        self.home_model_combo = QComboBox()
-        self.home_model_combo.currentIndexChanged.connect(self.on_home_model_changed)
-        project_layout.addWidget(QLabel("Projeto"), 0, 0)
-        project_layout.addWidget(self.project_combo, 0, 1)
-        create_project_button = QPushButton("Criar projeto")
-        create_project_button.clicked.connect(self.create_project)
-        project_layout.addWidget(create_project_button, 0, 2)
-        project_layout.addWidget(QLabel("Modelo"), 0, 3)
-        project_layout.addWidget(self.home_model_combo, 0, 4)
-        import_model_button = QPushButton("Importar modelo")
-        import_model_button.clicked.connect(self.import_prediction_model)
-        project_layout.addWidget(import_model_button, 0, 5)
-        project_layout.setColumnStretch(1, 1)
-        project_layout.setColumnStretch(4, 1)
-        layout.addWidget(project_box)
-
-        self.build_dataset_section(layout, show_import_actions=False)
-
-    def build_dataset_page(self, page):
-        layout = QVBoxLayout(page)
-        layout.setSpacing(12)
-        self.build_dataset_section(layout)
 
     def build_dataset_section(self, layout, show_import_actions=True):
         validation_box = self.panel("Selecao e divisao do dataset")

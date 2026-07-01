@@ -211,7 +211,7 @@ class AnnotationEditorDialog(QDialog):
             viewport_y = y - self.scroll_area.verticalScrollBar().value()
 
         factor = 1.15 if delta > 0 else 1 / 1.15
-        self.zoom = max(0.2, min(8.0, self.zoom * factor))
+        self.zoom = max(0.2, min(30.0, self.zoom * factor))
         self._set_preview_pixmap()
 
         if point is not None and viewport_x is not None and viewport_y is not None:

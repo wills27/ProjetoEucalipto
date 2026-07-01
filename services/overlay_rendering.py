@@ -55,19 +55,19 @@ def overlay_colored_mask_on_image(image, mask, selected_label=None, alpha=118):
         mask = np.asarray(mask_image)
 
     base = np.asarray(image.convert("RGB")).astype(np.float32)
-    labels = [int(label) for label in np.unique(mask) if int(label) > 0]
-    for label_value in labels:
-        pixels = mask == label_value
-        color = np.array(vessel_label_color(label_value), dtype=np.float32)
-        blend = alpha / 255.0
-        if selected_label and label_value == int(selected_label):
-            color = np.array((255, 214, 74), dtype=np.float32)
-            blend = 0.72
-        base[pixels] = (base[pixels] * (1 - blend)) + (color * blend)
+    positive = mask > 0
+    blend = alpha / 255.0
+
+    palette = np.array([vessel_label_color(i + 1) for i in range(8)], dtype=np.float32)
+    label_indices = (mask.astype(np.int64) - 1) % 8
+    colors = palette[label_indices]
+    base[positive] = base[positive] * (1 - blend) + colors[positive] * blend
 
     if selected_label:
         selected_pixels = mask == int(selected_label)
         if selected_pixels.any():
+            highlight = np.array((255, 214, 74), dtype=np.float32)
+            base[selected_pixels] = base[selected_pixels] * 0.28 + highlight * 0.72
             boundary = find_boundaries(selected_pixels, mode="outer")
             base[boundary] = np.array((255, 255, 255), dtype=np.float32)
             inner_boundary = find_boundaries(selected_pixels, mode="inner")
@@ -86,28 +86,28 @@ def overlay_id_font(image):
     return ImageFont.load_default()
 
 
-def draw_mask_ids(image, mask, selected_label=None, label_texts=None):
+def draw_mask_ids(image, mask, selected_label=None, label_texts=None, centroids=None):
     draw = ImageDraw.Draw(image)
     font = overlay_id_font(image)
     selected_label = int(selected_label) if selected_label else None
-    for region in regionprops(mask):
-        y, x = region.centroid
-        label = str(label_texts.get(int(region.label), region.label)) if label_texts else str(region.label)
-        fill = (0, 46, 40) if region.label != selected_label else (84, 49, 0)
-        stroke = (255, 255, 255)
+    if centroids is None:
+        centroids = {int(r.label): r.centroid for r in regionprops(mask)}
+    for label_val, (y, x) in centroids.items():
+        label = str(label_texts.get(label_val, label_val)) if label_texts else str(label_val)
+        fill = (0, 46, 40) if label_val != selected_label else (84, 49, 0)
         draw.text(
             (x + 3, y + 3),
             label,
             fill=fill,
             font=font,
             stroke_width=3,
-            stroke_fill=stroke,
+            stroke_fill=(255, 255, 255),
         )
 
 
-def render_colored_id_overlay(image, mask, selected_label=None, label_texts=None):
+def render_colored_id_overlay(image, mask, selected_label=None, label_texts=None, centroids=None):
     image = overlay_colored_mask_on_image(image, mask, selected_label=selected_label)
-    draw_mask_ids(image, mask, selected_label=selected_label, label_texts=label_texts)
+    draw_mask_ids(image, mask, selected_label=selected_label, label_texts=label_texts, centroids=centroids)
     return image
 
 
