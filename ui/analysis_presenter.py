@@ -65,15 +65,40 @@ class AnalysisPresenterMixin:
             return
         headers = rows[0]
         body = rows[1:]
-        table.setColumnCount(len(headers))
-        table.setHorizontalHeaderLabels(headers)
+        has_cal = self._csv_has_calibration(headers, body)
+        visible = self._csv_visible_columns(headers, has_cal)
+        filtered_headers = [headers[i] for i in visible]
+        table.setColumnCount(len(filtered_headers))
+        table.setHorizontalHeaderLabels(filtered_headers)
         table.setRowCount(len(body))
         for row_index, row in enumerate(body):
-            for column_index, value in enumerate(row):
-                table.setItem(row_index, column_index, QTableWidgetItem(value))
+            for col_pos, col_idx in enumerate(visible):
+                value = row[col_idx] if col_idx < len(row) else ""
+                table.setItem(row_index, col_pos, QTableWidgetItem(value))
         table.resizeColumnsToContents()
         table.horizontalHeader().setStretchLastSection(True)
         table.setSortingEnabled(True)
+
+    def _csv_has_calibration(self, headers, body):
+        if "unidade" not in headers:
+            return False
+        unit_col = headers.index("unidade")
+        return any(unit_col < len(row) and row[unit_col].strip() for row in body)
+
+    def _csv_visible_columns(self, headers, has_calibration):
+        px_cols = {
+            "area_px", "perimeter_px", "diametro_elipse_menor_px",
+            "media_area_px", "media_diametro_px",
+        }
+        cal_cols = {
+            "area_calibrada", "perimeter_calibrado", "diametro_elipse_menor_calibrado",
+            "media_area_calibrada", "media_diametro_calibrado", "unidade",
+        }
+        return [
+            i for i, h in enumerate(headers)
+            if not (has_calibration and h in px_cols)
+            and not (not has_calibration and h in cal_cols)
+        ]
 
     def show_analysis_image(self, image_stem):
         if not image_stem:

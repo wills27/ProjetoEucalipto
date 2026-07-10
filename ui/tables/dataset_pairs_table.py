@@ -13,6 +13,24 @@ class DatasetPairsTable(QTableWidget):
         super().__init__(*args, **kwargs)
         self.delete_callback = delete_callback
         self.move_callback = move_callback
+        self.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+
+    def _on_header_clicked(self, section):
+        if section != CHECK_COLUMN:
+            return
+        visible_rows = [r for r in range(self.rowCount()) if not self.isRowHidden(r)]
+        all_checked = all(
+            self.item(r, CHECK_COLUMN) is not None
+            and self.item(r, CHECK_COLUMN).checkState() == Qt.CheckState.Checked
+            for r in visible_rows
+        )
+        new_state = Qt.CheckState.Unchecked if all_checked else Qt.CheckState.Checked
+        self.blockSignals(True)
+        for r in visible_rows:
+            item = self.item(r, CHECK_COLUMN)
+            if item is not None:
+                item.setCheckState(new_state)
+        self.blockSignals(False)
 
     def mousePressEvent(self, event):
         index = self.indexAt(event.pos())

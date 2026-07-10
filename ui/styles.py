@@ -1,4 +1,8 @@
-APP_STYLE = r"""
+from pathlib import Path
+
+_CHECK_SVG = (Path(__file__).parent / "assets" / "check.svg").as_posix()
+
+_APP_STYLE_TEMPLATE = r"""
             QWidget {
                 background: transparent;
                 color: #1f2933;
@@ -264,7 +268,7 @@ APP_STYLE = r"""
             QCheckBox::indicator:checked {
                 background: #166b5c;
                 border: 1px solid #166b5c;
-                image: url(ui/assets/check.svg);
+                image: url(__CHECK_SVG__);
             }
             QCheckBox::indicator:disabled {
                 background: #eef0ed;
@@ -303,6 +307,21 @@ APP_STYLE = r"""
                 selection-background-color: #5fa08f;
                 selection-color: #ffffff;
                 gridline-color: #e8ece6;
+            }
+            QTableWidget::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #9aa8a0;
+                border-radius: 3px;
+                background: #ffffff;
+            }
+            QTableWidget::indicator:checked {
+                background: #166b5c;
+                border: 1px solid #166b5c;
+                image: url(__CHECK_SVG__);
+            }
+            QTableWidget::indicator:unchecked {
+                background: #ffffff;
             }
             QListWidget {
                 outline: 0;
@@ -391,7 +410,13 @@ APP_STYLE = r"""
             QHeaderView::section {
                 background: #eef0ed;
                 border: 0;
+                border-right: 1px solid #d9dfd8;
                 padding: 6px;
                 font-weight: 600;
             }
+            QHeaderView::section:last {
+                border-right: 0;
+            }
             """
+
+APP_STYLE = _APP_STYLE_TEMPLATE.replace("__CHECK_SVG__", _CHECK_SVG)
