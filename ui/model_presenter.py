@@ -67,6 +67,12 @@ class ModelPresenterMixin:
         self.pred_diameter.setText(str(self.config["diameter"]))
         if hasattr(self, "dataset_prediction_diameter"):
             self.dataset_prediction_diameter.setText(str(self.config["diameter"]))
+        if hasattr(self, "dataset_prediction_padding"):
+            self.dataset_prediction_padding.setText(str(self.config["padding_pixels"]))
+        if hasattr(self, "dataset_prediction_cellprob"):
+            self.dataset_prediction_cellprob.setText(str(self.config["cellprob_threshold"]))
+        if hasattr(self, "dataset_prediction_flow"):
+            self.dataset_prediction_flow.setText(str(self.config["flow_threshold"]))
         self.pred_cellprob.setText(str(self.config["cellprob_threshold"]))
         self.pred_flow.setText(str(self.config["flow_threshold"]))
         if not self.config.get("active_model") and hasattr(self, "train_model_name"):

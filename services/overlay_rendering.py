@@ -111,6 +111,22 @@ def render_colored_id_overlay(image, mask, selected_label=None, label_texts=None
     return image
 
 
+def build_label_index(mask):
+    """Sequential cell id (1..N) and centroid per mask label, in regionprops order.
+
+    Shared by every place that renders numbered cell overlays, so the results
+    table, the embedded results preview, and the results viewer dialog always
+    agree on which number belongs to which cell.
+    """
+    label_to_cell_id = {}
+    centroids = {}
+    for index, region in enumerate(regionprops(mask), start=1):
+        label_value = int(region.label)
+        label_to_cell_id[label_value] = index
+        centroids[label_value] = region.centroid
+    return label_to_cell_id, centroids
+
+
 def render_measurement_overlay(base_image, mask, mode):
     if mode == "overlay_50pct":
         filtered = filtrar_celulas_borda_proporcional(

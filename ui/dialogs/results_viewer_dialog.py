@@ -40,8 +40,11 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
         label_to_cell_id = {}
         region_values_by_label = {}
         centroids = {}
-        unit, unit_per_pixel = window.calibration()
-        has_calibration = unit_per_pixel > 0
+        # Valores em region_values_by_label ficam sempre em pixels puros e
+        # sao cacheados em disco (indexados por mtime da mascara, nao da
+        # calibracao). A conversao pra unidade calibrada e feita na hora de
+        # exibir (update_image_stats), usando a calibracao atual, para nunca
+        # divergir do que o usuario configurou depois de gerar o resultado.
         for index, region in enumerate(skimage_regionprops(mask), start=1):
             label_value = int(region.label)
             label_to_cell_id[label_value] = index
@@ -56,9 +59,6 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
                 "perimeter_px": f"{perimeter_value:.3f}" if perimeter is not None else "",
                 "centroid_x": f"{float(region.centroid[1]):.3f}",
                 "centroid_y": f"{float(region.centroid[0]):.3f}",
-                "area_calibrada": f"{area * (unit_per_pixel ** 2):.3f}" if has_calibration else "",
-                "perimeter_calibrado": f"{perimeter_value * unit_per_pixel:.3f}" if has_calibration and perimeter is not None else "",
-                "unidade": unit if has_calibration else "",
             }
 
         disk_path = overlays_dir(window.config) / f"{image_stem}_viewer_overlay.png"
@@ -377,11 +377,11 @@ class ResultsViewerDialog(QDialog):
         has_calibration = unit_per_pixel > 0
         areas = []
         for values in self.region_values_by_label.values():
-            key = "area_calibrada" if has_calibration else "area_px"
             try:
-                areas.append(float(values.get(key, 0) or 0))
+                area_px = float(values.get("area_px", 0) or 0)
             except ValueError:
-                pass
+                continue
+            areas.append(area_px * (unit_per_pixel ** 2) if has_calibration else area_px)
         lines = [f"Total: {total} células"]
         if areas:
             avg = sum(areas) / len(areas)

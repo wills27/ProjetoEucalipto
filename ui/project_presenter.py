@@ -1,11 +1,20 @@
 ﻿from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QFileDialog, QInputDialog
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QVBoxLayout,
+)
 
 from services.config import load_config, save_config, with_derived_paths
 from services.model_service import first_model_name
 from services.paths import (
     active_project_dir,
+    delete_project as delete_project_folder,
     ensure_project_structure,
     list_projects,
     projects_dir,
@@ -39,6 +48,22 @@ class ProjectPresenterMixin:
         dialog = CalibrationDialog(self)
         dialog.exec()
 
+    def build_project_panel(self):
+        box = self.panel("Projeto")
+        layout = QVBoxLayout(box)
+        self.project_combo = QComboBox()
+        self.project_combo.currentTextChanged.connect(self.select_project)
+        layout.addWidget(QLabel("Projeto ativo (agrupa imagens de treino)"))
+        layout.addWidget(self.project_combo)
+        actions = QHBoxLayout()
+        self.add_button(actions, "Novo Projeto", self.create_project)
+        self.add_button(actions, "Abrir Projetos", self.choose_projects_folder)
+        self.add_button(actions, "Deletar Projeto", self.delete_project)
+        actions.addStretch()
+        layout.addLayout(actions)
+        self.refresh_project_selector()
+        return box
+
     def select_project(self, project_name):
         if not project_name or project_name == self.config.get("active_project"):
             return
@@ -64,6 +89,56 @@ class ProjectPresenterMixin:
         self.config = with_derived_paths(self.config)
         save_config(self.config)
         self.refresh_all()
+
+    def delete_project(self):
+        project_name = self.config.get("active_project")
+        projects = list_projects(self.config)
+        if not project_name or project_name not in projects:
+            QMessageBox.information(self, "Deletar projeto", "Nenhum projeto valido selecionado.")
+            return
+
+        typed_name, ok = QInputDialog.getText(
+            self,
+            "Deletar projeto",
+            (
+                f"Isso apaga a pasta do projeto '{project_name}' do disco: imagens, mascaras, "
+                "modelos treinados e resultados. Nao pode ser desfeito.\n\n"
+                f"Digite '{project_name}' para confirmar:"
+            ),
+        )
+        if not ok or typed_name.strip() != project_name:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Deletar projeto",
+            f"Confirma a exclusao definitiva do projeto '{project_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            delete_project_folder(self.config, project_name)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Deletar projeto", f"Nao foi possivel deletar o projeto:\n{error}")
+            return
+
+        self.reset_project_dependent_state()
+        remaining_projects = list_projects(self.config)
+        if remaining_projects:
+            self.config["active_project"] = remaining_projects[0]
+            self.config["active_model"] = first_model_name(self.config)
+        else:
+            self.config["active_project"] = "eucalipto"
+            self.config["active_model"] = ""
+            ensure_project_structure(active_project_dir(self.config))
+        self.config = with_derived_paths(self.config)
+        self.clear_analysis_caches()
+        save_config(self.config)
+        self.refresh_all()
+        QMessageBox.information(self, "Deletar projeto", f"Projeto '{project_name}' removido.")
 
     def reset_project_dependent_state(self):
         self.pending_annotation_image_name = None

@@ -132,9 +132,9 @@ class ResultsPageBuilderMixin:
                 "remove": self.remove_context_result_images,
             },
             0,
-            3,
+            4,
         )
-        self.result_images_table.setHorizontalHeaderLabels(["Imagem", "Overlay", "Metricas"])
+        self.result_images_table.setHorizontalHeaderLabels(["", "Imagem", "Overlay", "Metricas"])
         self.result_images_table.verticalHeader().setVisible(False)
         self.result_images_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.result_images_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -143,9 +143,10 @@ class ResultsPageBuilderMixin:
             lambda row, _col, _previous_row, _previous_col: self.show_result_table_row(row)
         )
         self.last_result_check_row = None
-        self.result_images_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.result_images_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_images_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_images_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.result_images_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.result_images_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.result_images_table, 1)
         self.results_list_status = QLabel()
         self.results_list_status.setObjectName("hint")

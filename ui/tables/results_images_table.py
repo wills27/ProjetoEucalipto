@@ -1,17 +1,33 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMenu, QTableWidget
 
+# Coluna 0 e o checkbox de acao em lote (marcar imagens pra gerar/excluir em
+# lote), separado do destaque de linha do Qt usado so pra escolher o preview.
+CHECK_COLUMN = 0
+IMAGE_COLUMN = 1
+
 
 class ResultsImagesTable(QTableWidget):
     def __init__(self, actions=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.actions = actions or {}
 
+    def mousePressEvent(self, event):
+        index = self.indexAt(event.pos())
+        if index.isValid() and index.column() == CHECK_COLUMN and event.button() == Qt.MouseButton.LeftButton:
+            item = self.item(index.row(), CHECK_COLUMN)
+            if item is not None:
+                checked = item.checkState() == Qt.CheckState.Checked
+                item.setCheckState(Qt.CheckState.Unchecked if checked else Qt.CheckState.Checked)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
     def contextMenuEvent(self, event):
         row = self.rowAt(event.pos().y())
         if row >= 0 and not self.selectionModel().isRowSelected(row, self.rootIndex()):
             self.selectRow(row)
-            self.setCurrentCell(row, 0)
+            self.setCurrentCell(row, IMAGE_COLUMN)
 
         menu = QMenu(self)
         import_action = menu.addAction("Importar imagens")

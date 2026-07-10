@@ -9,13 +9,16 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QProgressBar,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from ui.annotation_page import AnnotationPage
@@ -44,15 +47,6 @@ class UiBuilderMixin:
         sidebar_layout.setSpacing(6)
         body.addWidget(sidebar, 0)
 
-        project_label = QLabel("Projeto")
-        project_label.setObjectName("sidebarSection")
-        sidebar_layout.addWidget(project_label)
-        self.project_combo = QComboBox()
-        self.project_combo.currentTextChanged.connect(self.select_project)
-        sidebar_layout.addWidget(self.project_combo)
-
-        sidebar_layout.addSpacing(4)
-
         model_label = QLabel("Modelo")
         model_label.setObjectName("sidebarSection")
         sidebar_layout.addWidget(model_label)
@@ -62,9 +56,6 @@ class UiBuilderMixin:
 
         sidebar_layout.addSpacing(8)
 
-        self.add_button(sidebar_layout, "Novo Projeto", self.create_project)
-        self.add_button(sidebar_layout, "Abrir Projetos", self.choose_projects_folder)
-        self.add_button(sidebar_layout, "Importar Imagens", self.import_dataset_folder)
         self.add_button(sidebar_layout, "Importar Modelo", self.import_prediction_model)
 
         sidebar_layout.addStretch()
@@ -79,12 +70,19 @@ class UiBuilderMixin:
         self.stack.addWidget(results_page)
 
         # Dataset section criado aqui para inicializar self.dataset_* widgets;
-        # embed no wizard de treino ao abrir.
+        # embed na pagina de treino.
         self._dataset_section_container = QWidget()
         self._dataset_section_container.setObjectName("page")
         _ds_layout = QVBoxLayout(self._dataset_section_container)
         _ds_layout.setContentsMargins(0, 0, 0, 0)
         self.build_dataset_section(_ds_layout)
+
+        # Treino fica fora da sidebar de proposito: o foco do app e gerar
+        # resultados, treino e acessado so pelo menu "Modelo > Treinar modelo".
+        training_page = QWidget()
+        training_page.setObjectName("page")
+        self.stack.addWidget(training_page)
+        self.build_training_page(training_page)
 
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
@@ -112,7 +110,8 @@ class UiBuilderMixin:
         self.dataset_calibration_label = QLabel("Calibracao: nao definida")
         self.dataset_calibration_label.setObjectName("hint")
         table_layout.addWidget(self.dataset_calibration_label)
-        filters_layout = QHBoxLayout()
+        filters_box = self.panel("Filtros")
+        filters_layout = QHBoxLayout(filters_box)
         self.dataset_filter = QLineEdit()
         self.dataset_filter.setPlaceholderText("Buscar por numero ou nome")
         self.dataset_filter.textChanged.connect(self.apply_dataset_filter)
@@ -141,18 +140,19 @@ class UiBuilderMixin:
         filters_layout.addWidget(self.dataset_group_filter)
         filters_layout.addWidget(self.dataset_include_filter)
         filters_layout.addWidget(clear_filter_button)
-        table_layout.addLayout(filters_layout)
+        table_layout.addWidget(filters_box)
         self.dataset_pairs_table = DatasetPairsTable(
             self.delete_selected_dataset_pair,
             self.move_selected_dataset_rows_to_group,
             0,
-            4,
+            5,
         )
-        self.dataset_pairs_table.setHorizontalHeaderLabels(["#", "Grupo", "Imagem", "Status"])
+        self.dataset_pairs_table.setHorizontalHeaderLabels(["", "#", "Grupo", "Imagem", "Status"])
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.verticalHeader().setVisible(False)
         self.dataset_pairs_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.dataset_pairs_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -186,14 +186,47 @@ class UiBuilderMixin:
         )
         self.dataset_preview_info.setObjectName("hint")
         self.dataset_preview_info.setWordWrap(True)
-        prediction_params = QGridLayout()
+        prediction_params = QHBoxLayout()
         prediction_params.setContentsMargins(0, 0, 0, 0)
-        prediction_params.setHorizontalSpacing(8)
+        prediction_params.setSpacing(8)
         self.dataset_prediction_diameter = QLineEdit(str(self.config["diameter"]))
         self.dataset_prediction_diameter.setMinimumWidth(72)
-        prediction_params.addWidget(QLabel("Diametro da predicao"), 0, 0)
-        prediction_params.addWidget(self.dataset_prediction_diameter, 0, 1)
-        prediction_params.setColumnStretch(2, 1)
+        prediction_params.addWidget(QLabel("Diametro da predicao"))
+        prediction_params.addWidget(self.dataset_prediction_diameter)
+
+        self.dataset_prediction_padding = QLineEdit(str(self.config["padding_pixels"]))
+        self.dataset_prediction_cellprob = QLineEdit(str(self.config["cellprob_threshold"]))
+        self.dataset_prediction_flow = QLineEdit(str(self.config["flow_threshold"]))
+        for field in [self.dataset_prediction_padding, self.dataset_prediction_cellprob, self.dataset_prediction_flow]:
+            field.setMinimumWidth(64)
+
+        self.dataset_advanced_button = QToolButton()
+        self.dataset_advanced_button.setText("Avancados")
+        self.dataset_advanced_button.setArrowType(Qt.ArrowType.DownArrow)
+        self.dataset_advanced_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.dataset_advanced_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        advanced_menu = QMenu(self.dataset_advanced_button)
+        advanced_widget = QWidget()
+        advanced_params_layout = QGridLayout(advanced_widget)
+        advanced_params_layout.setContentsMargins(10, 8, 10, 8)
+        advanced_params_layout.setHorizontalSpacing(8)
+        advanced_params_layout.setVerticalSpacing(6)
+        for row, (label, field) in enumerate(
+            [
+                ("Padding", self.dataset_prediction_padding),
+                ("Cell prob", self.dataset_prediction_cellprob),
+                ("Flow", self.dataset_prediction_flow),
+            ]
+        ):
+            advanced_params_layout.addWidget(QLabel(label), row, 0)
+            advanced_params_layout.addWidget(field, row, 1)
+        advanced_params_layout.setColumnStretch(1, 1)
+        advanced_action = QWidgetAction(advanced_menu)
+        advanced_action.setDefaultWidget(advanced_widget)
+        advanced_menu.addAction(advanced_action)
+        self.dataset_advanced_button.setMenu(advanced_menu)
+        prediction_params.addWidget(self.dataset_advanced_button)
+        prediction_params.addStretch()
         preview_actions = QHBoxLayout()
         self.dataset_predict_mask_button = self.add_button(
             preview_actions,

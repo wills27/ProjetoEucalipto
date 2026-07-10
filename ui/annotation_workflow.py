@@ -51,6 +51,15 @@ class AnnotationWorkflowMixin:
     def save_annotation_prediction_config(self):
         if hasattr(self, "dataset_prediction_diameter"):
             self.annotation_page.diameter.setText(self.dataset_prediction_diameter.text().strip())
+        if hasattr(self, "dataset_prediction_padding"):
+            try:
+                self.annotation_page.padding.setValue(int(self.parse_float(self.dataset_prediction_padding.text(), 0)))
+            except (TypeError, ValueError):
+                pass
+        if hasattr(self, "dataset_prediction_cellprob"):
+            self.annotation_page.cellprob.setText(self.dataset_prediction_cellprob.text().strip())
+        if hasattr(self, "dataset_prediction_flow"):
+            self.annotation_page.flow.setText(self.dataset_prediction_flow.text().strip())
         self.annotation_page.save_model_parameters_to_config(self.config, self.parse_float)
         save_config(self.config)
 

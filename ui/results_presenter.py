@@ -16,17 +16,26 @@ class ResultsPresenterMixin:
         self.result_images_table.setRowCount(len(entries))
         for row_index, stem in enumerate(entries):
             self.result_row_by_stem[stem] = row_index
+
+            check_item = QTableWidgetItem()
+            check_item.setFlags(
+                (check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsEditable
+            )
+            check_item.setCheckState(Qt.CheckState.Unchecked)
+            check_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.result_images_table.setItem(row_index, 0, check_item)
+
             image_item = QTableWidgetItem(stem)
             image_item.setData(Qt.ItemDataRole.UserRole, stem)
-            self.result_images_table.setItem(row_index, 0, image_item)
+            self.result_images_table.setItem(row_index, 1, image_item)
 
             overlay_item = self.result_status_item(self.result_overlay_exists(stem))
             overlay_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.result_images_table.setItem(row_index, 1, overlay_item)
+            self.result_images_table.setItem(row_index, 2, overlay_item)
 
             metrics_item = self.result_status_item(self.result_metrics_exists(stem))
             metrics_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.result_images_table.setItem(row_index, 2, metrics_item)
+            self.result_images_table.setItem(row_index, 3, metrics_item)
         self.result_images_table.blockSignals(False)
         if hasattr(self, "results_list_status"):
             overlay_count = len(self.result_status_index.get("overlays", set()))
@@ -39,14 +48,14 @@ class ResultsPresenterMixin:
         if selected:
             row = self.result_table_row_for_stem(selected)
             if row >= 0:
-                self.result_images_table.setCurrentCell(row, 0)
+                self.result_images_table.setCurrentCell(row, 1)
             elif self.result_images_table.rowCount() > 0:
-                self.result_images_table.setCurrentCell(0, 0)
+                self.result_images_table.setCurrentCell(0, 1)
             else:
                 self.preview_label.setText("Nenhuma imagem encontrada.")
                 self.preview_label.setPixmap(QPixmap())
         elif self.result_images_table.rowCount() > 0:
-            self.result_images_table.setCurrentCell(0, 0)
+            self.result_images_table.setCurrentCell(0, 1)
         else:
             self.preview_label.setText("Nenhuma imagem encontrada.")
             self.preview_label.setPixmap(QPixmap())
@@ -70,7 +79,7 @@ class ResultsPresenterMixin:
     def result_table_stem(self, row):
         if not hasattr(self, "result_images_table") or row < 0:
             return None
-        item = self.result_images_table.item(row, 0)
+        item = self.result_images_table.item(row, 1)
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def result_table_row_for_stem(self, stem):
@@ -88,8 +97,11 @@ class ResultsPresenterMixin:
         if not hasattr(self, "result_images_table"):
             return []
         stems = []
-        for index in self.result_images_table.selectionModel().selectedRows():
-            stem = self.result_table_stem(index.row())
+        for row in range(self.result_images_table.rowCount()):
+            check_item = self.result_images_table.item(row, 0)
+            if check_item is None or check_item.checkState() != Qt.CheckState.Checked:
+                continue
+            stem = self.result_table_stem(row)
             if stem:
                 stems.append(stem)
         return stems

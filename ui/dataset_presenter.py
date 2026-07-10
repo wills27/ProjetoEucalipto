@@ -17,10 +17,11 @@ from services.dataset_service import (
 from workers.dataset_scan_worker import DatasetScanWorker
 
 
-DATASET_NUMBER_COL = 0
-DATASET_GROUP_COL = 1
-DATASET_IMAGE_COL = 2
-DATASET_STATUS_COL = 3
+DATASET_CHECK_COL = 0
+DATASET_NUMBER_COL = 1
+DATASET_GROUP_COL = 2
+DATASET_IMAGE_COL = 3
+DATASET_STATUS_COL = 4
 
 
 class DatasetPresenterMixin:
@@ -103,6 +104,14 @@ class DatasetPresenterMixin:
                 include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
                 group = saved.get("group", "uncategorized")
 
+                check_item = QTableWidgetItem()
+                check_item.setFlags(
+                    (check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsEditable
+                )
+                check_item.setCheckState(Qt.CheckState.Unchecked)
+                check_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.dataset_pairs_table.setItem(row_index, DATASET_CHECK_COL, check_item)
+
                 number_item = QTableWidgetItem(str(row_index + 1))
                 number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -151,6 +160,7 @@ class DatasetPresenterMixin:
             self.bulk_updating_dataset_selection = False
             self.dataset_pairs_table.blockSignals(False)
             self.dataset_pairs_table.setUpdatesEnabled(True)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_CHECK_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_NUMBER_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_GROUP_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_IMAGE_COL, QHeaderView.ResizeMode.Stretch)
@@ -258,22 +268,6 @@ class DatasetPresenterMixin:
             return []
         return sorted({index.row() for index in self.dataset_pairs_table.selectedIndexes()})
 
-    def set_dataset_action_selection(self, rows, checked):
-        if not hasattr(self, "dataset_pairs_table"):
-            return
-        if not checked:
-            self.dataset_pairs_table.clearSelection()
-            self.update_dataset_selection_summary()
-            return
-        for row in rows:
-            if not self.dataset_pairs_table.isRowHidden(row):
-                index = self.dataset_pairs_table.model().index(row, DATASET_IMAGE_COL)
-                self.dataset_pairs_table.selectionModel().select(
-                    index,
-                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
-                )
-        self.update_dataset_selection_summary()
-
     def visible_dataset_rows(self):
         if not hasattr(self, "dataset_pairs_table"):
             return []
@@ -283,30 +277,18 @@ class DatasetPresenterMixin:
             if not self.dataset_pairs_table.isRowHidden(row)
         ]
 
-    def select_visible_dataset_rows_for_action(self):
-        self.set_dataset_action_selection(self.visible_dataset_rows(), True)
-
-    def clear_dataset_action_selection(self):
-        rows = range(self.dataset_pairs_table.rowCount()) if hasattr(self, "dataset_pairs_table") else []
-        self.set_dataset_action_selection(rows, False)
-
-    def invert_visible_dataset_action_selection(self):
+    def checked_dataset_rows(self):
         if not hasattr(self, "dataset_pairs_table"):
-            return
-        rows = self.visible_dataset_rows()
-        selected_rows = set(self.selected_dataset_rows())
-        self.dataset_pairs_table.clearSelection()
-        for row in rows:
-            if row not in selected_rows:
-                index = self.dataset_pairs_table.model().index(row, DATASET_IMAGE_COL)
-                self.dataset_pairs_table.selectionModel().select(
-                    index,
-                    QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
-                )
-        self.update_dataset_selection_summary()
+            return []
+        rows = []
+        for row in range(self.dataset_pairs_table.rowCount()):
+            item = self.dataset_pairs_table.item(row, DATASET_CHECK_COL)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                rows.append(row)
+        return rows
 
     def move_selected_dataset_rows_to_group(self, group=None):
-        rows = self.selected_dataset_rows()
+        rows = self.checked_dataset_rows() or self.selected_dataset_rows()
         if not rows:
             QMessageBox.information(self, "Mover grupo", "Selecione uma ou mais imagens na tabela.")
             return
@@ -452,7 +434,7 @@ class DatasetPresenterMixin:
         return title, summary, details
 
     def delete_selected_dataset_pair(self):
-        rows = self.selected_dataset_rows()
+        rows = self.checked_dataset_rows() or self.selected_dataset_rows()
         if not rows:
             row = self.selected_dataset_pair_row()
             rows = [row] if row >= 0 else []

@@ -81,7 +81,6 @@ class CellposeWindow(
         self.runtime_metrics_ready_stems = set()
         self.pending_result_stems = None
         self.auto_measure_after_evaluation = False
-        self.training_dialog = None
         self.model_import_thread = None
         self.model_import_worker = None
         self.dataset_scan_thread = None

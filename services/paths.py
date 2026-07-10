@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import shutil
 import sys
 
 
@@ -114,6 +115,21 @@ def list_projects(config):
     root = projects_dir(config)
     root.mkdir(parents=True, exist_ok=True)
     return sorted(path.name for path in root.iterdir() if path.is_dir())
+
+
+def delete_project(config, project_name):
+    """Permanently removes a project folder (images, masks, models, outputs) from disk.
+
+    Refuses to delete anything outside the projects root, and refuses a name
+    that isn't currently a known project, so a stale/garbage `project_name`
+    can't be used to point at an arbitrary path.
+    """
+    if not project_name or project_name not in list_projects(config):
+        raise ValueError(f"Projeto desconhecido: {project_name!r}")
+    target = projects_dir(config) / project_name
+    if target.parent != projects_dir(config):
+        raise ValueError(f"Caminho de projeto invalido: {target}")
+    shutil.rmtree(target)
 
 
 def project_path(value, config=None):

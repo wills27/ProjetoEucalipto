@@ -4,6 +4,7 @@ from PIL import ImageDraw
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
 
 from services.config import save_config
 from services.paths import PROJECT_DIR, active_project_dir
-from ui.widgets import AnnotationPreviewLabel, qimage_from_pil
+from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
 
 class CalibrationDialog(QDialog):
@@ -30,6 +31,8 @@ class CalibrationDialog(QDialog):
         self.image = None
         self.image_path = None
         self.points = []
+        self.drag_start = None
+        self.active_point_index = None
         self.current_preview_image = None
         self.current_preview_pixmap = None
         self.zoom = 1.0
@@ -42,9 +45,10 @@ class CalibrationDialog(QDialog):
         preview_box = window.panel("Imagem de referencia")
         preview_layout = QVBoxLayout(preview_box)
         self.preview_label = AnnotationPreviewLabel(
-            self.add_point,
-            None,
-            None,
+            self.start_drag,
+            self.drag_move,
+            self.finish_drag,
+            cancel_callback=self.cancel_drag,
             wheel_callback=self.zoom_preview,
             draw_button=Qt.MouseButton.LeftButton,
         )
@@ -96,7 +100,10 @@ class CalibrationDialog(QDialog):
         self.pixel_distance.textChanged.connect(self.update_unit_per_pixel)
         self.real_distance.textChanged.connect(self.update_unit_per_pixel)
 
-        hint = QLabel("Clique dois pontos na imagem ou informe os valores manualmente.")
+        hint = QLabel(
+            "Clique e arraste na imagem para medir (Shift trava na horizontal/vertical) "
+            "ou informe os valores manualmente."
+        )
         hint.setObjectName("hint")
         hint.setWordWrap(True)
         controls_layout.addWidget(hint)
@@ -162,33 +169,105 @@ class CalibrationDialog(QDialog):
         self.image = self.window.load_image_as_rgb(path)
         self.update_preview()
 
-    def add_point(self, source_label, x, y):
+    def start_drag(self, source_label, x, y):
         if self.image is None:
             QMessageBox.information(self, "Calibracao", "Abra uma imagem para marcar os pontos.")
             return
-        point = self.widget_to_image_xy(source_label, x, y)
+        if len(self.points) == 2:
+            hit_index = self.hit_test_point(source_label, x, y)
+            if hit_index is not None:
+                self.active_point_index = hit_index
+                self.drag_start = None
+                return
+        point = self.widget_to_image_xy(source_label, x, y, clamp=True)
         if point is None:
             return
-        if len(self.points) >= 2:
-            self.points = []
-        self.points.append(point)
-        if len(self.points) == 2:
-            distance = self.distance_between_points(self.points[0], self.points[1])
-            self.pixel_distance.setText(f"{distance:.3f}")
+        self.active_point_index = None
+        self.drag_start = point
+        self.points = [point]
         self.update_preview()
 
-    def widget_to_image_xy(self, source_label, x, y):
+    def drag_move(self, source_label, x, y):
+        point = self.widget_to_image_xy(source_label, x, y, clamp=True)
+        if point is None:
+            return
+        if self.active_point_index is not None:
+            anchor = self.points[1 - self.active_point_index]
+            point = self.apply_shift_lock(anchor, point)
+            points = list(self.points)
+            points[self.active_point_index] = point
+            self.set_current_line(points[0], points[1])
+            return
+        if self.drag_start is None:
+            return
+        point = self.apply_shift_lock(self.drag_start, point)
+        self.set_current_line(self.drag_start, point)
+
+    def finish_drag(self, source_label, x, y):
+        if self.active_point_index is not None:
+            point = self.widget_to_image_xy(source_label, x, y, clamp=True)
+            if point is not None:
+                anchor = self.points[1 - self.active_point_index]
+                point = self.apply_shift_lock(anchor, point)
+                points = list(self.points)
+                points[self.active_point_index] = point
+                self.set_current_line(points[0], points[1])
+            self.active_point_index = None
+            return
+        if self.drag_start is None:
+            return
+        point = self.widget_to_image_xy(source_label, x, y, clamp=True)
+        if point is None:
+            point = self.points[-1] if len(self.points) == 2 else self.drag_start
+        point = self.apply_shift_lock(self.drag_start, point)
+        self.set_current_line(self.drag_start, point)
+        self.drag_start = None
+
+    def cancel_drag(self):
+        self.drag_start = None
+        self.active_point_index = None
+        self.clear_points()
+
+    def hit_test_point(self, source_label, x, y, tolerance=10):
+        if self.image is None or len(self.points) != 2:
+            return None
+        image_width, image_height = self.image.size
+        scale, offset_x, offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
+        for index, point in enumerate(self.points):
+            widget_x = point[0] * scale + offset_x
+            widget_y = point[1] * scale + offset_y
+            if (widget_x - x) ** 2 + (widget_y - y) ** 2 <= tolerance ** 2:
+                return index
+        return None
+
+    def set_current_line(self, start, end):
+        self.points = [start, end]
+        distance = self.distance_between_points(start, end)
+        self.pixel_distance.setText(f"{distance:.3f}")
+        self.update_preview()
+
+    def apply_shift_lock(self, start, current):
+        if not QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return current
+        delta_x = current[0] - start[0]
+        delta_y = current[1] - start[1]
+        if abs(delta_x) >= abs(delta_y):
+            return (current[0], start[1])
+        return (start[0], current[1])
+
+    def widget_to_image_xy(self, source_label, x, y, clamp=False):
         if self.image is None:
             return None
         image_width, image_height = self.image.size
-        scale = getattr(source_label, "_display_scale", None)
-        offset_x = getattr(source_label, "_display_offset_x", 0)
-        offset_y = getattr(source_label, "_display_offset_y", 0)
-        if scale is None or scale == 0:
+        scale, offset_x, offset_y = displayed_pixmap_geometry(source_label, image_width, image_height)
+        if not scale:
             return None
-        image_x = int((x - offset_x) / scale)
-        image_y = int((y - offset_y) / scale)
-        if image_x < 0 or image_y < 0 or image_x >= image_width or image_y >= image_height:
+        image_x = (x - offset_x) / scale
+        image_y = (y - offset_y) / scale
+        if clamp:
+            image_x = min(max(image_x, 0), image_width - 1)
+            image_y = min(max(image_y, 0), image_height - 1)
+        elif image_x < 0 or image_y < 0 or image_x >= image_width or image_y >= image_height:
             return None
         return image_x, image_y
 
@@ -205,14 +284,16 @@ class CalibrationDialog(QDialog):
         image = self.image.copy()
         draw = ImageDraw.Draw(image)
         for point in self.points:
-            x, y = point
-            draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=(255, 214, 74), outline=(0, 46, 40), width=2)
+            x, y = round(point[0]), round(point[1])
+            draw.rectangle((x, y, x, y), fill=(255, 214, 74), outline=(0, 46, 40))
         if len(self.points) == 2:
             draw.line(self.points, fill=(255, 214, 74), width=3)
         self.set_preview_image(image)
 
     def clear_points(self):
         self.points = []
+        self.drag_start = None
+        self.active_point_index = None
         self.pixel_distance.clear()
         self.update_preview()
 

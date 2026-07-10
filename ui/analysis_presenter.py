@@ -11,6 +11,7 @@ from services.csv_files import load_semicolon_csv as read_semicolon_csv
 from services.image_arrays import normalize_array
 from services.metrics import read_metrics
 from services.overlay_rendering import (
+    build_label_index,
     overlay_colored_mask_on_image as render_colored_mask_overlay,
     render_colored_id_overlay as render_id_overlay,
     render_measurement_overlay as render_measurement_mask_overlay,
@@ -136,15 +137,6 @@ class AnalysisPresenterMixin:
             pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
             if not pred_path.exists():
                 return None
-            if mode == "overlay":
-                return (
-                    "render",
-                    stem,
-                    mode,
-                    image_key,
-                    self.cache_key("mask", pred_path),
-                    self.cache_key("overlay", self.result_overlay_path(stem)),
-                )
             return "render", stem, mode, image_key, self.cache_key("mask", pred_path)
         return None
 
@@ -196,34 +188,13 @@ class AnalysisPresenterMixin:
             return None
 
         if mode == "overlay":
-            stored_overlay = self.load_result_overlay_image(stem, base_image.size)
-            if stored_overlay is not None:
-                return stored_overlay
-            self.save_result_overlay(stem, mask)
-            stored_overlay = self.load_result_overlay_image(stem, base_image.size)
-            if stored_overlay is not None:
-                return stored_overlay
-            return self.overlay_colored_mask_on_image(base_image, mask)
+            # Mesma fonte (mascara atual + numeracao sequencial) usada pelo
+            # dialogo "Visualizar resultados", pra nunca mostrar uma imagem
+            # diferente entre as duas telas.
+            label_to_cell_id, centroids = build_label_index(mask)
+            return render_id_overlay(base_image, mask, label_texts=label_to_cell_id, centroids=centroids)
 
         return render_measurement_mask_overlay(base_image, mask, mode)
-
-    def load_result_overlay_image(self, stem, image_size):
-        image_path = self.result_image_path(stem)
-        if image_path is None or not image_path.exists():
-            return None
-        base_image = self.load_image_as_rgb(image_path)
-        overlay_path = self.result_overlay_path(stem)
-        if overlay_path.exists():
-            with Image.open(overlay_path) as overlay_image:
-                overlay = overlay_image.convert("RGBA")
-                if overlay.size != image_size:
-                    overlay = overlay.resize(image_size, Image.Resampling.NEAREST)
-                return Image.alpha_composite(base_image.convert("RGBA"), overlay).convert("RGB")
-
-        for legacy_path in self.legacy_result_overlay_paths(stem):
-            if legacy_path.exists():
-                return self.load_image_as_rgb(legacy_path)
-        return None
 
     def load_image_as_rgb(self, path):
         cache_key = self.cache_key("image", path)

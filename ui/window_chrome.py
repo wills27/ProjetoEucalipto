@@ -14,19 +14,14 @@ class WindowChromeMixin:
         menu_bar.setNativeMenuBar(False)
 
         file_menu = menu_bar.addMenu("Arquivo")
-        self.add_menu_action(file_menu, "Importar imagens e mascaras", self.import_dataset_folder)
-        file_menu.addSeparator()
         self.add_menu_action(file_menu, "Sair", self.close, "Ctrl+Q")
-
-        project_menu = menu_bar.addMenu("Projeto")
-        self.add_menu_action(project_menu, "Criar projeto", self.create_project, "Ctrl+N")
-        self.add_menu_action(project_menu, "Pasta de projetos", self.choose_projects_folder)
-        self.add_menu_action(project_menu, "Compactar mascaras", self.run_mask_compaction)
-        self.add_menu_action(project_menu, "Calibracao", self.open_calibration_dialog)
 
         model_menu = menu_bar.addMenu("Modelo")
         self.add_menu_action(model_menu, "Importar modelo", self.import_prediction_model)
-        self.add_menu_action(model_menu, "Treinar modelo", self.open_training_dialog)
+        self.add_menu_action(model_menu, "Calibracao", self.open_calibration_dialog)
+        model_menu.addSeparator()
+        self.add_menu_action(model_menu, "Treinar modelo", self.open_training_page)
+        self.add_menu_action(model_menu, "Compactar mascaras", self.run_mask_compaction)
 
         results_menu = menu_bar.addMenu("Resultados")
         self.add_menu_action(results_menu, "Gerar resultados", self.run_results, "Ctrl+R")
