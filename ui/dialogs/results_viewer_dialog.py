@@ -57,8 +57,6 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
                 "cell_id": str(index),
                 "area_px": f"{area:.3f}",
                 "perimeter_px": f"{perimeter_value:.3f}" if perimeter is not None else "",
-                "centroid_x": f"{float(region.centroid[1]):.3f}",
-                "centroid_y": f"{float(region.centroid[0]):.3f}",
             }
 
         disk_path = overlays_dir(window.config) / f"{image_stem}_viewer_overlay.png"
@@ -106,9 +104,10 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
 
 
 class ResultsViewerDialog(QDialog):
-    def __init__(self, window):
+    def __init__(self, window, initial_stem=None):
         super().__init__(window)
         self.window = window
+        self._initial_stem = initial_stem
         self.current_stem = None
         self._measurements_rows = []
         self.current_mask = None
@@ -205,8 +204,9 @@ class ResultsViewerDialog(QDialog):
         self.calibration_label.setText(self.calibration_status_text())
         selected_stem = (
             self.image_list.currentItem().data(Qt.ItemDataRole.UserRole)
-            if self.image_list.currentItem() else None
+            if self.image_list.currentItem() else self._initial_stem
         )
+        self._initial_stem = None
 
         self.load_measurement_index()
         counts_rows = self.window.load_semicolon_csv(cell_counts_csv_path(self.window.config))
@@ -417,57 +417,38 @@ class ResultsViewerDialog(QDialog):
         return cols
 
     def _measurements_row_for_label(self, label_value):
-        region_vals = self.region_values_by_label.get(label_value)
-        if not region_vals:
-            return None, None
-        # viewer: centroid_x=col(centroid[1]), centroid_y=row(centroid[0])
-        # csv:    centroid_x=row(centroid[0]), centroid_y=col(centroid[1])
-        try:
-            target_row = float(region_vals["centroid_y"])
-            target_col = float(region_vals["centroid_x"])
-        except (KeyError, ValueError):
+        cell_id = self.label_to_cell_id.get(label_value)
+        if cell_id is None:
             return None, None
         cols = self._measurements_col_index()
-        cx_col = cols.get("centroid_x")
-        cy_col = cols.get("centroid_y")
-        if cx_col is None or cy_col is None:
+        cell_id_col = cols.get("cell_id")
+        if cell_id_col is None:
             return None, None
         for row in range(self.measurements_table.rowCount()):
-            cx_item = self.measurements_table.item(row, cx_col)
-            cy_item = self.measurements_table.item(row, cy_col)
-            if not cx_item or not cy_item:
+            item = self.measurements_table.item(row, cell_id_col)
+            if not item:
                 continue
             try:
-                csv_row = float(cx_item.text())
-                csv_col = float(cy_item.text())
+                if int(float(item.text())) == int(cell_id):
+                    return row, item
             except ValueError:
                 continue
-            if abs(csv_row - target_row) < 1.0 and abs(csv_col - target_col) < 1.0:
-                return row, cx_item
         return None, None
 
     def _label_for_measurements_row(self, table_row):
         cols = self._measurements_col_index()
-        cx_col = cols.get("centroid_x")
-        cy_col = cols.get("centroid_y")
-        if cx_col is None or cy_col is None:
+        cell_id_col = cols.get("cell_id")
+        if cell_id_col is None:
             return None
-        cx_item = self.measurements_table.item(table_row, cx_col)
-        cy_item = self.measurements_table.item(table_row, cy_col)
-        if not cx_item or not cy_item:
+        item = self.measurements_table.item(table_row, cell_id_col)
+        if not item:
             return None
         try:
-            csv_row = float(cx_item.text().replace(",", "."))
-            csv_col = float(cy_item.text().replace(",", "."))
+            cell_id = int(float(item.text()))
         except ValueError:
             return None
-        for label_value, region_vals in self.region_values_by_label.items():
-            try:
-                v_row = float(region_vals["centroid_y"])
-                v_col = float(region_vals["centroid_x"])
-            except (KeyError, ValueError):
-                continue
-            if abs(csv_row - v_row) < 1.0 and abs(csv_col - v_col) < 1.0:
+        for label_value, mapped_cell_id in self.label_to_cell_id.items():
+            if mapped_cell_id == cell_id:
                 return label_value
         return None
 
@@ -524,7 +505,7 @@ class ResultsViewerDialog(QDialog):
         unit, unit_per_pixel = self.window.calibration()
         if unit_per_pixel <= 0:
             return "Calibração: não definida"
-        return f"Calibração: {unit_per_pixel:.6g} {unit}/px"
+        return f"Calibração: {1 / unit_per_pixel:.6g} px/{unit}"
 
     def widget_to_image_xy(self, source_label, x, y):
         if self.current_mask is None:

@@ -1,6 +1,6 @@
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from services.csv_files import remove_rows_from_csv as remove_csv_rows
 from services.dataset_manifest import update_plan_entry_group
@@ -319,3 +319,47 @@ class ResultActionsMixin:
 
     def remove_rows_from_csv(self, path, column_name, image_stem):
         return remove_csv_rows(path, column_name, image_stem)
+
+    def export_context_result_images(self):
+        stems = self.context_result_image_stems()
+        if not stems:
+            QMessageBox.information(self, "Exportar imagem", "Selecione uma ou mais imagens na lista.")
+            return
+
+        mode = getattr(self, "current_view_mode", "overlay")
+        images = {}
+        for stem in stems:
+            image = self.analysis_preview_image(stem, mode)
+            if image is not None:
+                images[stem] = image
+
+        if not images:
+            QMessageBox.information(
+                self,
+                "Exportar imagem",
+                "Nenhuma imagem disponivel para exportar neste modo. Gere os resultados primeiro.",
+            )
+            return
+
+        if len(images) == 1:
+            stem, image = next(iter(images.items()))
+            file_name, _filter = QFileDialog.getSaveFileName(
+                self,
+                "Exportar imagem",
+                f"{stem}_{mode}.png",
+                "Imagem PNG (*.png)",
+            )
+            if not file_name:
+                return
+            image.convert("RGB").save(file_name, format="PNG")
+            return
+
+        folder = QFileDialog.getExistingDirectory(self, "Exportar imagens")
+        if not folder:
+            return
+        exported = 0
+        for stem, image in images.items():
+            path = f"{folder}/{stem}_{mode}.png"
+            image.convert("RGB").save(path, format="PNG")
+            exported += 1
+        QMessageBox.information(self, "Exportar imagem", f"{exported} imagem(ns) exportada(s) para:\n{folder}")

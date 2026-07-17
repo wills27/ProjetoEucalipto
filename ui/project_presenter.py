@@ -36,7 +36,7 @@ class ProjectPresenterMixin:
         unit, unit_per_pixel = self.calibration()
         if unit_per_pixel <= 0:
             return "Calibracao: nao definida"
-        return f"Calibracao: {unit_per_pixel:.6g} {unit}/px"
+        return f"Calibracao: {1 / unit_per_pixel:.6g} px/{unit}"
 
     def refresh_calibration_labels(self):
         text = self.calibration_text()

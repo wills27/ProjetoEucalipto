@@ -188,6 +188,7 @@ class ResultsPageBuilderMixin:
         center_layout.addWidget(self.preview_label, 1)
         edit_mask_layout = QHBoxLayout()
         edit_mask_layout.addStretch()
+        self.add_button(edit_mask_layout, "Exportar imagem", self.export_context_result_images)
         self.add_button(edit_mask_layout, "Editar mascara", self.open_selected_result_mask_editor)
         center_layout.addLayout(edit_mask_layout)
         layout.addWidget(center, 1)

@@ -57,6 +57,8 @@ class UiBuilderMixin:
         sidebar_layout.addSpacing(8)
 
         self.add_button(sidebar_layout, "Importar Modelo", self.import_prediction_model)
+        self.add_button(sidebar_layout, "Remover Modelo", self.remove_active_model)
+        self.add_button(sidebar_layout, "Calibracao", self.open_calibration_dialog)
 
         sidebar_layout.addStretch()
         self.add_button(sidebar_layout, "Atualizar", self.refresh_all)

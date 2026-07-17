@@ -190,7 +190,7 @@ class ResultWorkflowMixin:
         return created, skipped
 
     def open_results_viewer(self):
-        dialog = ResultsViewerDialog(self)
+        dialog = ResultsViewerDialog(self, initial_stem=self.current_result_image_stem())
         dialog.exec()
 
     def run_evaluation(self, image_stems=None):

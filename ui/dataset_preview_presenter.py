@@ -42,6 +42,7 @@ class DatasetPreviewPresenterMixin:
             self.dataset_preview_info.setText(
                 f"{image_path.name}\n{row_data.get('status', '')}\nDuplo clique para editar a mascara."
             )
+            self.select_dataset_annotation_row(row_data)
         except Exception as exc:
             self.dataset_preview_label.setText(f"Nao foi possivel carregar preview:\n{exc}")
             self.dataset_preview_label.setPixmap(QPixmap())

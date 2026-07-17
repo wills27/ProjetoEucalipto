@@ -94,7 +94,7 @@ class CalibrationDialog(QDialog):
         form.addWidget(self.pixel_distance, 1, 1)
         form.addWidget(QLabel("Distancia real"), 2, 0)
         form.addWidget(self.real_distance, 2, 1)
-        form.addWidget(QLabel("Unidade/px"), 3, 0)
+        form.addWidget(QLabel("Px/unidade"), 3, 0)
         form.addWidget(self.unit_per_pixel, 3, 1)
         controls_layout.addLayout(form)
         self.pixel_distance.textChanged.connect(self.update_unit_per_pixel)
@@ -131,7 +131,6 @@ class CalibrationDialog(QDialog):
             self.unit_combo.setEditText(unit)
         self.pixel_distance.setText(self.format_float(calibration.get("pixel_distance", 0.0)))
         self.real_distance.setText(self.format_float(calibration.get("real_distance", 0.0)))
-        self.unit_per_pixel.setText(self.format_float(calibration.get("unit_per_pixel", 0.0)))
         self.update_unit_per_pixel()
 
     def format_float(self, value):
@@ -308,13 +307,20 @@ class CalibrationDialog(QDialog):
             return 0.0
         return real / pixels
 
+    def calculate_pixels_per_unit_value(self):
+        pixels = self.parse_float_field(self.pixel_distance)
+        real = self.parse_float_field(self.real_distance)
+        if pixels <= 0 or real <= 0:
+            return 0.0
+        return pixels / real
+
     def update_unit_per_pixel(self):
         try:
-            unit_per_pixel = self.calculate_unit_per_pixel_value()
+            pixels_per_unit = self.calculate_pixels_per_unit_value()
         except ValueError:
             self.unit_per_pixel.clear()
             return
-        self.unit_per_pixel.setText(f"{unit_per_pixel:.8g}" if unit_per_pixel > 0 else "")
+        self.unit_per_pixel.setText(f"{pixels_per_unit:.8g}" if pixels_per_unit > 0 else "")
 
     def save_calibration(self):
         try:

@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QHeaderView, QMessageBox, QTableWidgetItem
 
 from services.config import save_config, with_derived_paths
 from services.metrics import format_size
-from services.model_service import first_model_name, list_model_names, list_model_paths
+from services.model_service import delete_model, first_model_name, list_model_names, list_model_paths
 from services.paths import (
     active_model_path,
     dataset_images_dir,
@@ -125,6 +125,40 @@ class ModelPresenterMixin:
             f"Atual: {model_name}\n"
         )
         self.refresh_all()
+
+    def remove_active_model(self):
+        model_name = self.home_model_combo.currentData() if hasattr(self, "home_model_combo") else None
+        model_name = model_name or self.config.get("active_model")
+        if not model_name:
+            QMessageBox.information(self, "Remover modelo", "Selecione um modelo para remover.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Remover modelo",
+            (
+                f"Apagar definitivamente o modelo '{model_name}' do disco?\n\n"
+                "Predicoes, overlays e metricas associadas a este modelo tambem serao removidas. "
+                "Nao pode ser desfeito."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            delete_model(self.config, model_name)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Remover modelo", f"Nao foi possivel remover o modelo:\n{error}")
+            return
+
+        if self.config.get("active_model") == model_name:
+            self.config["active_model"] = first_model_name(self.config)
+            self.config = with_derived_paths(self.config)
+        save_config(self.config)
+        self.refresh_all()
+        QMessageBox.information(self, "Remover modelo", f"Modelo '{model_name}' removido.")
 
     def select_project_model(self):
         if not hasattr(self, "project_models_table"):
