@@ -72,12 +72,8 @@ class UiBuilderMixin:
         self.stack.addWidget(results_page)
 
         # Dataset section criado aqui para inicializar self.dataset_* widgets;
-        # embed na pagina de treino.
-        self._dataset_section_container = QWidget()
-        self._dataset_section_container.setObjectName("page")
-        _ds_layout = QVBoxLayout(self._dataset_section_container)
-        _ds_layout.setContentsMargins(0, 0, 0, 0)
-        self.build_dataset_section(_ds_layout)
+        # os paineis retornados sao posicionados pelas paginas do wizard de treino.
+        self.build_dataset_section()
 
         # Treino fica fora da sidebar de proposito: o foco do app e gerar
         # resultados, treino e acessado so pelo menu "Modelo > Treinar modelo".
@@ -102,10 +98,9 @@ class UiBuilderMixin:
         self.set_page(0)
         self.apply_style()
 
-    def build_dataset_section(self, layout, show_import_actions=True):
-        validation_box = self.panel("Selecao e divisao do dataset")
-        validation_layout = QHBoxLayout(validation_box)
-        table_layout = QVBoxLayout()
+    def build_dataset_section(self):
+        self._dataset_table_panel = self.panel("Selecao do dataset")
+        table_layout = QVBoxLayout(self._dataset_table_panel)
         self.dataset_validation_summary = QLabel()
         self.dataset_validation_summary.setObjectName("mono")
         table_layout.addWidget(self.dataset_validation_summary)
@@ -163,14 +158,13 @@ class UiBuilderMixin:
         self.dataset_pairs_table.currentCellChanged.connect(self.on_dataset_pair_current_cell_changed)
         table_layout.addWidget(self.dataset_pairs_table, 1)
         validation_actions = QHBoxLayout()
-        if show_import_actions:
-            self.add_button(validation_actions, "Importar imagens", self.import_dataset_folder)
-        self.add_button(validation_actions, "Separar treino/teste", self.auto_split_dataset_table)
+        self.dataset_import_button = self.add_button(validation_actions, "Importar imagens", self.import_dataset_folder)
+        self.dataset_split_button = self.add_button(validation_actions, "Separar treino/teste", self.auto_split_dataset_table)
         validation_actions.addStretch()
         table_layout.addLayout(validation_actions)
-        validation_layout.addLayout(table_layout, 1)
 
-        preview_layout = QVBoxLayout()
+        self._dataset_preview_panel = self.panel("Mascaras")
+        preview_layout = QVBoxLayout(self._dataset_preview_panel)
         self.dataset_preview_label = AnnotationPreviewLabel(
             lambda *_args: None,
             lambda *_args: None,
@@ -251,10 +245,29 @@ class UiBuilderMixin:
         preview_layout.addLayout(preview_actions)
         preview_layout.addWidget(self.dataset_mask_progress)
         preview_layout.addWidget(self.dataset_preview_info)
-        validation_layout.addLayout(preview_layout, 2)
-        layout.addWidget(validation_box, 1)
 
         self.annotation_page = AnnotationPage(self, build_ui=False)
+        self.set_dataset_table_mode(split=False)
+
+    def set_dataset_table_mode(self, split):
+        # Alterna a tabela do dataset entre a etapa de mascaras (sem colunas/
+        # acoes de separacao treino/val/teste) e a etapa de separacao dos
+        # dados (que expoe grupo, filtros e acoes de divisao do dataset).
+        self._dataset_table_panel.setTitle("Separacao dos dados" if split else "Selecao do dataset")
+        self.dataset_pairs_table.setColumnHidden(2, not split)
+        self.dataset_group_filter.setVisible(split)
+        self.dataset_include_filter.setVisible(split)
+        self.dataset_split_button.setVisible(split)
+        self.dataset_import_button.setVisible(not split)
+        self.dataset_pairs_table.move_callback = (
+            self.move_selected_dataset_rows_to_group if split else None
+        )
+        if not split:
+            # Esses filtros ficam ocultos fora da etapa de separacao; zera-los
+            # evita que um filtro invisivel esconda linhas na etapa de mascaras.
+            self.dataset_group_filter.setCurrentIndex(0)
+            self.dataset_include_filter.setCurrentIndex(0)
+        self.apply_dataset_filter()
 
     def panel(self, title):
         box = QGroupBox(title)

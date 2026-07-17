@@ -1,18 +1,18 @@
 {
   "active_project": "Carol",
   "projects_dir": "",
-  "active_model": "carol9",
+  "active_model": "Carol",
   "padding_pixels": 64,
-  "diameter": 50.0,
+  "diameter": 100.0,
   "cellprob_threshold": 0.0,
   "flow_threshold": 0.4,
   "calibration": {
     "unit": "um",
-    "unit_per_pixel": 0.0,
-    "pixel_distance": 0.0,
-    "real_distance": 0.0,
-    "source": "",
-    "source_image": ""
+    "unit_per_pixel": 0.3360610286828088,
+    "pixel_distance": 297.565,
+    "real_distance": 100.0,
+    "source": "external_image",
+    "source_image": "C:\\Users\\santa\\Desktop\\partes\\BA-A2-2_inferior_direita.jpeg"
   },
   "import_dataset_prefix_folders": false,
   "import_results_grayscale": true,

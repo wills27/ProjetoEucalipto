@@ -51,7 +51,7 @@ class ScriptWorkflowMixin:
         self.config["active_model"] = model_name
         self.config = with_derived_paths(self.config)
         save_config(self.config)
-        self._go_to_training_wizard_page(2)
+        self._go_to_training_wizard_page(3)
         args = [
             str(SCRIPTS_DIR / "train_cellpose.py"),
             "--project-dir",

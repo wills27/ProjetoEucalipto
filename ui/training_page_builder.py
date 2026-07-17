@@ -32,21 +32,30 @@ class TrainingPageBuilderMixin:
         self._training_wizard_stack = QStackedWidget()
         page_layout.addWidget(self._training_wizard_stack, 1)
 
-        # Passo 1: Projeto e Dataset
-        dataset_page = QWidget()
-        dataset_layout = QVBoxLayout(dataset_page)
-        dataset_layout.setContentsMargins(14, 14, 14, 14)
-        dataset_layout.addWidget(self.build_project_panel())
-        dataset_layout.addWidget(self._dataset_section_container)
-        self._dataset_section_container.show()
-        self._training_wizard_stack.addWidget(dataset_page)
+        # Passo 1: Projeto e mascaras
+        masks_page = QWidget()
+        masks_layout = QVBoxLayout(masks_page)
+        masks_layout.setContentsMargins(14, 14, 14, 14)
+        masks_layout.addWidget(self.build_project_panel())
+        self._training_masks_body = QHBoxLayout()
+        self._training_masks_body.addWidget(self._dataset_table_panel, 1)
+        self._training_masks_body.addWidget(self._dataset_preview_panel, 2)
+        masks_layout.addLayout(self._training_masks_body, 1)
+        self._training_wizard_stack.addWidget(masks_page)
 
-        # Passo 2: Parametros de treino
+        # Passo 2: Separacao dos dados (treino/validacao/teste)
+        split_page = QWidget()
+        split_layout = QVBoxLayout(split_page)
+        split_layout.setContentsMargins(14, 14, 14, 14)
+        self._training_split_page_layout = split_layout
+        self._training_wizard_stack.addWidget(split_page)
+
+        # Passo 3: Parametros de treino
         params_page = QWidget()
         self._build_train_params_page(params_page)
         self._training_wizard_stack.addWidget(params_page)
 
-        # Passo 3: Progresso
+        # Passo 4: Progresso
         progress_page = QWidget()
         self._build_train_progress_page(progress_page)
         self._training_wizard_stack.addWidget(progress_page)
@@ -78,10 +87,20 @@ class TrainingPageBuilderMixin:
         self._go_to_training_wizard_page(0)
 
     def _go_to_training_wizard_page(self, index):
+        self._place_dataset_table_panel(index == 1)
         self._training_wizard_stack.setCurrentIndex(index)
-        self._wizard_back_button.setVisible(index == 1)
-        self._wizard_next_button.setVisible(index == 0)
-        self._wizard_train_button.setVisible(index == 1)
+        self._wizard_back_button.setVisible(index in (1, 2))
+        self._wizard_next_button.setVisible(index in (0, 1))
+        self._wizard_train_button.setVisible(index == 2)
+
+    def _place_dataset_table_panel(self, in_split_page):
+        self._training_masks_body.removeWidget(self._dataset_table_panel)
+        self._training_split_page_layout.removeWidget(self._dataset_table_panel)
+        if in_split_page:
+            self._training_split_page_layout.addWidget(self._dataset_table_panel, 1)
+        else:
+            self._training_masks_body.insertWidget(0, self._dataset_table_panel, 1)
+        self.set_dataset_table_mode(split=in_split_page)
 
     def _wizard_go_back(self):
         current = self._training_wizard_stack.currentIndex()

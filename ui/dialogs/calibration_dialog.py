@@ -33,6 +33,7 @@ class CalibrationDialog(QDialog):
         self.points = []
         self.drag_start = None
         self.active_point_index = None
+        self.placing_second_point = False
         self.current_preview_image = None
         self.current_preview_pixmap = None
         self.zoom = 1.0
@@ -101,7 +102,8 @@ class CalibrationDialog(QDialog):
         self.real_distance.textChanged.connect(self.update_unit_per_pixel)
 
         hint = QLabel(
-            "Clique e arraste na imagem para medir (Shift trava na horizontal/vertical) "
+            "Clique para marcar o primeiro ponto e clique novamente para marcar o segundo "
+            "(Shift trava na horizontal/vertical); arraste um ponto existente para reposiciona-lo, "
             "ou informe os valores manualmente."
         )
         hint.setObjectName("hint")
@@ -164,6 +166,9 @@ class CalibrationDialog(QDialog):
         self.image_path = path
         self.image_source = source
         self.points = []
+        self.drag_start = None
+        self.active_point_index = None
+        self.placing_second_point = False
         self.reset_zoom()
         self.image = self.window.load_image_as_rgb(path)
         self.update_preview()
@@ -172,18 +177,30 @@ class CalibrationDialog(QDialog):
         if self.image is None:
             QMessageBox.information(self, "Calibracao", "Abra uma imagem para marcar os pontos.")
             return
-        if len(self.points) == 2:
+        if len(self.points) == 2 and not self.placing_second_point:
             hit_index = self.hit_test_point(source_label, x, y)
             if hit_index is not None:
                 self.active_point_index = hit_index
                 self.drag_start = None
                 return
+            # Clique fora dos pontos existentes reinicia a medicao.
+            self.points = []
         point = self.widget_to_image_xy(source_label, x, y, clamp=True)
         if point is None:
             return
         self.active_point_index = None
+        if self.placing_second_point:
+            # Segundo clique: fecha a linha entre o primeiro e este ponto.
+            first_point = self.points[0]
+            point = self.apply_shift_lock(first_point, point)
+            self.set_current_line(first_point, point)
+            self.drag_start = None
+            self.placing_second_point = False
+            return
+        # Primeiro clique: marca o ponto inicial e aguarda o segundo clique.
         self.drag_start = point
         self.points = [point]
+        self.placing_second_point = True
         self.update_preview()
 
     def drag_move(self, source_label, x, y):
@@ -197,8 +214,9 @@ class CalibrationDialog(QDialog):
             points[self.active_point_index] = point
             self.set_current_line(points[0], points[1])
             return
-        if self.drag_start is None:
+        if not self.placing_second_point or self.drag_start is None:
             return
+        # Pre-visualiza a linha ate o segundo clique, sem confirmar o ponto.
         point = self.apply_shift_lock(self.drag_start, point)
         self.set_current_line(self.drag_start, point)
 
@@ -212,15 +230,6 @@ class CalibrationDialog(QDialog):
                 points[self.active_point_index] = point
                 self.set_current_line(points[0], points[1])
             self.active_point_index = None
-            return
-        if self.drag_start is None:
-            return
-        point = self.widget_to_image_xy(source_label, x, y, clamp=True)
-        if point is None:
-            point = self.points[-1] if len(self.points) == 2 else self.drag_start
-        point = self.apply_shift_lock(self.drag_start, point)
-        self.set_current_line(self.drag_start, point)
-        self.drag_start = None
 
     def cancel_drag(self):
         self.drag_start = None
@@ -293,6 +302,7 @@ class CalibrationDialog(QDialog):
         self.points = []
         self.drag_start = None
         self.active_point_index = None
+        self.placing_second_point = False
         self.pixel_distance.clear()
         self.update_preview()
 
