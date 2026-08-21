@@ -25,7 +25,7 @@ class ResultWorkflowMixin:
             stem = Path(image_name).stem
             if selected_stems and stem not in selected_stems:
                 continue
-            if entry.get("group") != "test" or not entry.get("include", True):
+            if entry.get("group") != "test":
                 continue
             mask_path = manifest_mask_path(self.config, entry)
             if mask_path is not None:

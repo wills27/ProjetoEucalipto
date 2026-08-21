@@ -29,7 +29,13 @@ def process_error_summary(text, max_lines=8):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         return ""
-    return "\n".join(lines[-max_lines:])
+    tail_lines = lines[-max_lines:]
+    diagnostic_lines = [
+        line
+        for line in lines
+        if (line.startswith("Warning:") or line.startswith("Plano:")) and line not in tail_lines
+    ]
+    return "\n".join(diagnostic_lines + tail_lines)
 
 
 def stem_from_result_path(text, suffix):

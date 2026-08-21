@@ -16,6 +16,7 @@ class ProcessPresenterMixin:
 
         self.current_process_title = title
         self.current_process_error = ""
+        self.current_process_output = ""
         self.current_process_model = self.config.get("active_model") or ""
         if title == "Gerar resultados":
             self.runtime_overlay_ready_stems.clear()
@@ -146,7 +147,8 @@ class ProcessPresenterMixin:
         self.log_text.moveCursor(self.log_text.textCursor().MoveOperation.End)
 
     def capture_process_error(self, text):
-        summary = process_error_summary(text)
+        self.current_process_output = getattr(self, "current_process_output", "") + text
+        summary = process_error_summary(self.current_process_output)
         if summary:
             self.current_process_error = summary
 

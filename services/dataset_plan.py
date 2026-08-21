@@ -31,9 +31,9 @@ def summarize_table_entries(entries):
             valid += 1
         else:
             problems += 1
-        if entry.get("include"):
+        group = entry.get("group", "uncategorized")
+        if group != "uncategorized":
             selected += 1
-            group = entry.get("group", "uncategorized")
             groups[group] = groups.get(group, 0) + 1
 
     return {
@@ -49,7 +49,7 @@ def auto_split_indices(entries, seed=42, train_ratio=0.7, val_ratio=0.15):
     rows = [
         index
         for index, entry in enumerate(entries)
-        if entry.get("status") in {"OK", "Com mascara"} and entry.get("include")
+        if entry.get("status") in {"OK", "Com mascara"} and entry.get("group", "uncategorized") != "uncategorized"
     ]
     random.seed(seed)
     random.shuffle(rows)
@@ -66,6 +66,6 @@ def auto_split_indices(entries, seed=42, train_ratio=0.7, val_ratio=0.15):
     for row in rows[n_train + n_val:]:
         assignments[row] = "test"
     for index, entry in enumerate(entries):
-        if entry.get("status") == "Sem mascara" and entry.get("include"):
+        if entry.get("status") == "Sem mascara" and entry.get("group", "uncategorized") != "uncategorized":
             assignments[index] = "test"
     return assignments

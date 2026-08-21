@@ -114,7 +114,7 @@ def result_image_entries(config, dataset_plan):
                 entries.setdefault(path.stem, path)
 
     for saved in dataset_plan.values():
-        if saved.get("group") != "test" or not saved.get("include", True):
+        if saved.get("group") != "test":
             continue
         image_path = manifest_image_path(config, saved)
         if image_path is not None:
@@ -125,8 +125,6 @@ def result_image_entries(config, dataset_plan):
         if saved.get("group") == "uncategorized":
             continue
         is_prediction_only = not image_mask_exists(image_path)
-        if not is_prediction_only and not saved.get("include", True):
-            continue
         is_test_image = is_prediction_only or saved.get("group") == "test"
         if is_test_image:
             entries.setdefault(image_path.stem, image_path)

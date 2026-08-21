@@ -80,7 +80,8 @@ class DatasetPresenterMixin:
         selected_count = sum(
             1
             for row in rows
-            if row["status"] in {"Com mascara", "Sem mascara"} and plan.get(row["image"], {}).get("include", True)
+            if row["status"] in {"Com mascara", "Sem mascara"}
+            and plan.get(row["image"], {}).get("group", "auto") != "uncategorized"
         )
 
         self.dataset_validation_summary.setText(
@@ -101,8 +102,7 @@ class DatasetPresenterMixin:
             for row_index, row in enumerate(rows):
                 saved = plan.get(row["image"], {})
                 can_include = row["status"] in {"Com mascara", "Sem mascara"}
-                include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
-                group = saved.get("group", "uncategorized")
+                group = saved.get("group", "auto")
 
                 check_item = QTableWidgetItem()
                 check_item.setFlags(
@@ -149,8 +149,8 @@ class DatasetPresenterMixin:
             for row_index, row in enumerate(rows):
                 saved = plan.get(row["image"], {})
                 can_include = row["status"] in {"Com mascara", "Sem mascara"}
-                include = can_include and (row["status"] == "Sem mascara" or saved.get("include", True))
-                if include:
+                in_dataset = can_include and saved.get("group", "auto") != "uncategorized"
+                if in_dataset:
                     index = self.dataset_pairs_table.model().index(row_index, DATASET_IMAGE_COL)
                     self.dataset_pairs_table.selectionModel().select(
                         index,
@@ -331,14 +331,16 @@ class DatasetPresenterMixin:
             "group": self.dataset_group_filter.currentData() if hasattr(self, "dataset_group_filter") else "",
             "include": self.dataset_include_filter.currentData() if hasattr(self, "dataset_include_filter") else "",
         }
-        selected_rows = set(self.selected_dataset_rows())
         first_visible = -1
         for row in range(self.dataset_pairs_table.rowCount()):
             row_data = self.dataset_pair_row_data(row) or {}
             group_combo = self.dataset_pairs_table.cellWidget(row, DATASET_GROUP_COL)
             group_text = group_combo.currentText().lower() if group_combo else ""
             group_value = group_combo.currentData() if group_combo and group_combo.currentData() else ""
-            is_selected = row in selected_rows and row_data.get("status") in {"Com mascara", "Sem mascara"}
+            is_selected = (
+                group_value not in ("", "uncategorized")
+                and row_data.get("status") in {"Com mascara", "Sem mascara"}
+            )
             visible = dataset_row_matches_filters(
                 row + 1,
                 row_data,
@@ -382,18 +384,15 @@ class DatasetPresenterMixin:
 
     def dataset_plan_entries_from_table(self):
         entries = []
-        selected_rows = set(self.selected_dataset_rows())
         for row in range(self.dataset_pairs_table.rowCount()):
             status_item = self.dataset_pairs_table.item(row, DATASET_STATUS_COL)
             group_combo = self.dataset_pairs_table.cellWidget(row, DATASET_GROUP_COL)
             image_item = self.dataset_pairs_table.item(row, DATASET_IMAGE_COL)
             if status_item is None or image_item is None:
                 continue
-            selected = row in selected_rows and status_item.text() in {"Com mascara", "Sem mascara"}
             entries.append(
                 dataset_plan_entry(
                     image_item.text(),
-                    selected,
                     group_combo.currentData() if group_combo else "uncategorized",
                     status_item.text(),
                 )

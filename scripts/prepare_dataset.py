@@ -191,11 +191,9 @@ def split_dataset_from_plan(pairs, plan):
 
     for image_path, mask in pairs:
         entry = plan.get(image_path.name, {})
-        if not entry.get("include", True):
-            continue
-        group = entry.get("group", "auto")
+        group = entry.get("group", "uncategorized")
         if group == "uncategorized":
-            group = "auto"
+            continue
         if mask is None:
             selected["test"].append((image_path, mask))
             continue

@@ -79,7 +79,7 @@ def image_has_mask(config, entry, image_path=None):
     return manifest_mask_path(config, entry, image_path=image_path) is not None
 
 
-def update_plan_entry_group(config, image_stem, group, include=True, status=None):
+def update_plan_entry_group(config, image_stem, group, status=None):
     plan_path = dataset_plan_path(config)
     plan = load_plan(plan_path)
     target_key = None
@@ -97,7 +97,6 @@ def update_plan_entry_group(config, image_stem, group, include=True, status=None
 
     entry = plan[target_key]
     entry["image"] = target_key
-    entry["include"] = include
     entry["group"] = group
     if status is None:
         image_path = manifest_image_path(config, entry)
@@ -107,11 +106,9 @@ def update_plan_entry_group(config, image_stem, group, include=True, status=None
     return entry
 
 
-def plan_entries_for_group(config, group, include_only=True, require_mask=False):
+def plan_entries_for_group(config, group, require_mask=False):
     entries = []
     for entry in load_plan(dataset_plan_path(config)).values():
-        if include_only and not entry.get("include", True):
-            continue
         if entry.get("group", "uncategorized") != group:
             continue
         image_path = manifest_image_path(config, entry)

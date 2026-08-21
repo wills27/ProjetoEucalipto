@@ -63,6 +63,7 @@ class CellposeWindow(
         self.pending_annotation_image_path = None
         self.current_process_title = ""
         self.current_process_error = ""
+        self.current_process_output = ""
         self.result_process_titles = {"Gerar resultados", "Avaliar modelo", "Gerar CSVs de medidas"}
         self.training_start_time = None
         self.current_view_mode = "overlay"

@@ -3,10 +3,9 @@ from pathlib import Path
 from services.dataset_plan import load_plan, save_plan, summarize_table_entries
 
 
-def dataset_plan_entry(image, include, group, status):
+def dataset_plan_entry(image, group, status):
     return {
         "image": image,
-        "include": include,
         "group": group or "uncategorized",
         "status": status,
     }

@@ -160,12 +160,10 @@ def load_dataset_from_plan(project_dir, plan_path):
     included_count = 0
     test_skipped = 0
     for entry in data.get("images", []):
-        if not entry.get("include", True):
-            continue
-        included_count += 1
         group = entry.get("group", "uncategorized")
         if group == "uncategorized":
-            group = "auto"
+            continue
+        included_count += 1
         if group == "test":
             test_skipped += 1
             continue

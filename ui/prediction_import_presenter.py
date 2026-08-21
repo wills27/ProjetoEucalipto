@@ -288,7 +288,7 @@ class PredictionImportPresenterMixin:
 
                 try:
                     action = import_prediction_image(src, dst, convert_to_grayscale)
-                    update_plan_entry_group(self.config, dst.stem, "test", include=True, status="Sem mascara")
+                    update_plan_entry_group(self.config, dst.stem, "test", status="Sem mascara")
                     if action == "copied":
                         copied += 1
                     else:
