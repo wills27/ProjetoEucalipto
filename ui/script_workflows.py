@@ -48,6 +48,7 @@ class ScriptWorkflowMixin:
             QMessageBox.information(self, "Modelo", "Informe um nome para o modelo.")
             return
 
+        self.save_dataset_plan_from_table()
         self.config["active_model"] = model_name
         self.config = with_derived_paths(self.config)
         save_config(self.config)
