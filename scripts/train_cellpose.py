@@ -140,7 +140,9 @@ def split_auto_entries(entries):
     total = len(automatic)
     n_train = int(total * 0.7)
     n_val = int(total * 0.15)
-    return automatic[:n_train], automatic[n_train:n_train + n_val]
+    train_entries = automatic[:n_train] + automatic[n_train + n_val:]
+    val_entries = automatic[n_train:n_train + n_val]
+    return train_entries, val_entries
 
 
 def load_dataset_from_plan(project_dir, plan_path):
@@ -154,26 +156,66 @@ def load_dataset_from_plan(project_dir, plan_path):
         data = json.load(plan_file)
 
     grouped = {"train": [], "val": [], "auto": []}
+    assigned_counts = {"train": 0, "val": 0, "auto": 0}
+    included_count = 0
+    test_skipped = 0
     for entry in data.get("images", []):
         if not entry.get("include", True):
             continue
+        included_count += 1
         group = entry.get("group", "uncategorized")
-        if group not in grouped:
+        if group == "uncategorized":
+            group = "auto"
+        if group == "test":
+            test_skipped += 1
             continue
+        if group not in grouped:
+            log(f"Warning: grupo '{group}' nao reconhecido para {entry.get('image', '')}, imagem ignorada no treino")
+            continue
+        assigned_counts[group] += 1
         image_path = find_image_path(project_dir, entry.get("image", ""))
         if image_path is None:
-            log(f"Warning: imagem nao encontrada no plano: {entry.get('image', '')}")
+            log(f"Warning: imagem nao encontrada no plano: {entry.get('image', '')} (grupo '{group}')")
             continue
         mask_path = find_mask_path(project_dir, image_path)
         if mask_path is None:
-            log(f"Warning: mascara nao encontrada para {image_path.name}")
+            log(f"Warning: mascara nao encontrada para {image_path.name} (grupo '{group}')")
             continue
         grouped[group].append((image_path, mask_path))
 
     auto_train, auto_val = split_auto_entries(grouped["auto"])
     train_pairs = grouped["train"] + auto_train
     val_pairs = grouped["val"] + auto_val
+
+    log(
+        f"  Plano: {included_count} imagem(ns) marcada(s) para incluir "
+        f"({test_skipped} no grupo teste, ignoradas no treino)"
+    )
+    log(
+        f"  Plano: grupo treino {assigned_counts['train']} atribuida(s) -> {len(grouped['train'])} carregada(s)"
+    )
+    log(
+        f"  Plano: grupo validacao {assigned_counts['val']} atribuida(s) -> {len(grouped['val'])} carregada(s)"
+    )
+    log(
+        f"  Plano: {assigned_counts['auto']} sem grupo definido/auto -> "
+        f"{len(auto_train)} para treino / {len(auto_val)} para validacao (divisao automatica)"
+    )
+
+    if assigned_counts["train"] > 0 and len(grouped["train"]) == 0:
+        log(
+            f"Warning: {assigned_counts['train']} imagem(ns) atribuida(s) ao grupo treino, mas nenhuma "
+            "foi encontrada em disco (veja os avisos de imagem/mascara ausente acima)."
+        )
+    if assigned_counts["val"] > 0 and len(grouped["val"]) == 0:
+        log(
+            f"Warning: {assigned_counts['val']} imagem(ns) atribuida(s) ao grupo validacao, mas nenhuma "
+            "foi encontrada em disco (veja os avisos de imagem/mascara ausente acima). "
+            "O treino vai rodar sem validacao e test_loss ficara em 0.0000 em todas as epocas."
+        )
+
     if not train_pairs and not val_pairs:
+        log("Warning: nenhuma imagem valida sobrou apos aplicar o plano (verifique imagens/mascaras ausentes acima).")
         return None
 
     def load_pairs(pairs, label):

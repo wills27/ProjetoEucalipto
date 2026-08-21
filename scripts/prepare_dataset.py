@@ -195,7 +195,7 @@ def split_dataset_from_plan(pairs, plan):
             continue
         group = entry.get("group", "auto")
         if group == "uncategorized":
-            continue
+            group = "auto"
         if mask is None:
             selected["test"].append((image_path, mask))
             continue
