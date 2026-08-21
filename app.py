@@ -66,6 +66,8 @@ class CellposeWindow(
         self.current_process_output = ""
         self.result_process_titles = {"Gerar resultados", "Avaliar modelo", "Gerar CSVs de medidas"}
         self.training_start_time = None
+        self.training_dataset_train_count = None
+        self.training_dataset_val_count = None
         self.current_view_mode = "overlay"
         self.nav_buttons = []
         self.metric_labels = {}

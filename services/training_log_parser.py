@@ -44,10 +44,12 @@ def parse_training_log_line(line, friendly_error_callback=None):
         if "treinamento finalizado" in normalized:
             return {"type": "stage", "key": "concluido", "title": "Treinamento finalizado"}
 
-    if "imagens de treino:" in normalized:
-        return {"type": "detail", "text": message}
-    if "imagens de validacao:" in normalized:
-        return {"type": "detail", "text": message}
+    train_count_match = re.search(r"imagens de treino:\s*(\d+)", normalized)
+    if train_count_match:
+        return {"type": "dataset_count", "kind": "train", "count": int(train_count_match.group(1))}
+    val_count_match = re.search(r"imagens de validacao:\s*(\d+)", normalized)
+    if val_count_match:
+        return {"type": "dataset_count", "kind": "val", "count": int(val_count_match.group(1))}
     if "usando gpu:" in normalized:
         gpu_state = message.split(":", 1)[-1].strip()
         return {"type": "detail", "text": f"GPU detectada: {gpu_state}"}

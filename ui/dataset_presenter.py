@@ -529,7 +529,7 @@ class DatasetPresenterMixin:
         if hasattr(self, "result_images_table"):
             self.refresh_analysis_images()
 
-    def on_dataset_pair_current_cell_changed(self, current_row, current_column, _previous_row, _previous_column):
-        if current_row < 0 or current_column == DATASET_GROUP_COL:
+    def on_dataset_pair_current_cell_changed(self, current_row, _current_column, _previous_row, _previous_column):
+        if current_row < 0:
             return
         self.show_selected_dataset_pair()

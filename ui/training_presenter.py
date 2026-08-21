@@ -37,6 +37,9 @@ class TrainingPresenterMixin:
         self.loss_plot.reset(self.train_epochs.value())
         self.training_status_label.setText("Treinando...")
         self.training_model_label.setText(f"Modelo: {self.train_model_name.text().strip()}")
+        self.training_dataset_train_count = None
+        self.training_dataset_val_count = None
+        self.training_dataset_counts_label.setText("Imagens: - treino / - validacao")
         self.training_epoch_progress.setRange(0, self.train_epochs.value())
         self.training_epoch_progress.setValue(0)
         self.training_epoch_label.setText(f"Epocas: 0/{self.train_epochs.value()}")
@@ -107,12 +110,24 @@ class TrainingPresenterMixin:
         elif event_type == "detail":
             self.training_detail_label.setText(f"Detalhes: {event['text']}")
             self.training_last_message_label.setText("Atualizacao: informacao do treino recebida")
+        elif event_type == "dataset_count":
+            self.update_training_dataset_counts(event)
         elif event_type == "internal_progress":
             self.training_detail_label.setText("Detalhes: etapa interna do Cellpose concluida")
             self.training_last_message_label.setText("Atualizacao: Cellpose concluiu uma subetapa interna")
         elif event_type == "error":
             self.training_detail_label.setText(event["text"])
             self.training_last_message_label.setText("Atualizacao: erro detectado durante o treino")
+
+    def update_training_dataset_counts(self, event):
+        if event["kind"] == "train":
+            self.training_dataset_train_count = event["count"]
+        else:
+            self.training_dataset_val_count = event["count"]
+        train_text = self.training_dataset_train_count if self.training_dataset_train_count is not None else "-"
+        val_text = self.training_dataset_val_count if self.training_dataset_val_count is not None else "-"
+        self.training_dataset_counts_label.setText(f"Imagens: {train_text} treino / {val_text} validacao")
+        self.training_last_message_label.setText("Atualizacao: contagem de imagens de treino/validacao recebida")
 
     def update_training_epoch(self, event):
         epoch = event["epoch"]

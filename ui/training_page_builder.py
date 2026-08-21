@@ -38,8 +38,6 @@ class TrainingPageBuilderMixin:
         masks_layout.setContentsMargins(14, 14, 14, 14)
         masks_layout.addWidget(self.build_project_panel())
         self._training_masks_body = QHBoxLayout()
-        self._training_masks_body.addWidget(self._dataset_table_panel, 1)
-        self._training_masks_body.addWidget(self._dataset_preview_panel, 2)
         masks_layout.addLayout(self._training_masks_body, 1)
         self._training_wizard_stack.addWidget(masks_page)
 
@@ -47,7 +45,8 @@ class TrainingPageBuilderMixin:
         split_page = QWidget()
         split_layout = QVBoxLayout(split_page)
         split_layout.setContentsMargins(14, 14, 14, 14)
-        self._training_split_page_layout = split_layout
+        self._training_split_body = QHBoxLayout()
+        split_layout.addLayout(self._training_split_body, 1)
         self._training_wizard_stack.addWidget(split_page)
 
         # Passo 3: Parametros de treino
@@ -94,12 +93,12 @@ class TrainingPageBuilderMixin:
         self._wizard_train_button.setVisible(index == 2)
 
     def _place_dataset_table_panel(self, in_split_page):
-        self._training_masks_body.removeWidget(self._dataset_table_panel)
-        self._training_split_page_layout.removeWidget(self._dataset_table_panel)
-        if in_split_page:
-            self._training_split_page_layout.addWidget(self._dataset_table_panel, 1)
-        else:
-            self._training_masks_body.insertWidget(0, self._dataset_table_panel, 1)
+        for body in (self._training_masks_body, self._training_split_body):
+            body.removeWidget(self._dataset_table_panel)
+            body.removeWidget(self._dataset_preview_panel)
+        target_body = self._training_split_body if in_split_page else self._training_masks_body
+        target_body.addWidget(self._dataset_table_panel, 1)
+        target_body.addWidget(self._dataset_preview_panel, 2)
         self.set_dataset_table_mode(split=in_split_page)
 
     def _wizard_go_back(self):
@@ -180,6 +179,7 @@ class TrainingPageBuilderMixin:
         self.training_status_label = QLabel("Aguardando treino.")
         self.training_status_label.setObjectName("largeText")
         self.training_model_label = QLabel("Modelo: -")
+        self.training_dataset_counts_label = QLabel("Imagens: - treino / - validacao")
         self.training_elapsed_label = QLabel("Tempo decorrido: 00:00:00")
         self.training_epoch_label = QLabel("Epocas: 0/0")
         self.training_epoch_label.setObjectName("largeText")
@@ -237,6 +237,7 @@ class TrainingPageBuilderMixin:
         self.reset_training_steps()
         progress_layout.addWidget(self.training_status_label)
         progress_layout.addWidget(self.training_model_label)
+        progress_layout.addWidget(self.training_dataset_counts_label)
         progress_layout.addWidget(self.training_elapsed_label)
         progress_layout.addWidget(self.training_epoch_label)
         progress_layout.addWidget(self.training_epoch_progress)
