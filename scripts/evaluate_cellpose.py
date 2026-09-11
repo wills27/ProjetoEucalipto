@@ -40,20 +40,45 @@ def binary_metrics(gt_mask, pred_mask):
     return {
         "dice": dice,
         "iou": iou,
-        "precision": precision,
-        "recall": recall,
-        "gt_objects": int(gt_mask.max()),
-        "pred_objects": int(pred_mask.max()),
+        "precisao": precision,
+        "revocacao": recall,
+        "objetos_reais": int(gt_mask.max()),
+        "objetos_preditos": int(pred_mask.max()),
     }
+
+
+def parse_decimal(value):
+    if isinstance(value, str):
+        value = value.replace(",", ".")
+    return float(value)
+
+
+LEGACY_METRIC_ALIASES = {
+    "imagem": "image",
+    "precisao": "precision",
+    "revocacao": "recall",
+    "objetos_reais": "gt_objects",
+    "objetos_preditos": "pred_objects",
+}
 
 
 def normalize_metric_row(row):
     normalized = dict(row)
-    for metric in ["dice", "iou", "precision", "recall"]:
-        normalized[metric] = float(normalized.get(metric, 0) or 0)
-    for field in ["gt_objects", "pred_objects"]:
-        normalized[field] = int(float(normalized.get(field, 0) or 0))
+    for new_key, legacy_key in LEGACY_METRIC_ALIASES.items():
+        if new_key not in normalized and legacy_key in normalized:
+            normalized[new_key] = normalized[legacy_key]
+    for metric in ["dice", "iou", "precisao", "revocacao"]:
+        normalized[metric] = round(parse_decimal(normalized.get(metric, 0) or 0), 2)
+    for field in ["objetos_reais", "objetos_preditos"]:
+        normalized[field] = int(parse_decimal(normalized.get(field, 0) or 0))
     return normalized
+
+
+def format_metric_row(row):
+    formatted = dict(row)
+    for metric in ["dice", "iou", "precisao", "revocacao"]:
+        formatted[metric] = f"{row[metric]:.2f}".replace(".", ",")
+    return formatted
 
 
 def load_mask(mask_path):
@@ -115,45 +140,48 @@ def main():
             continue
 
         metrics = binary_metrics(gt_mask, pred_mask)
-        rows.append({"image": image_stem, **metrics})
+        rows.append({"imagem": image_stem, **metrics})
         print(f"METRICS {image_stem}", flush=True)
         print(f"PROGRESS {index} {total} Avaliacao: {image_stem}", flush=True)
 
     if not rows:
         raise RuntimeError("Nenhuma predicao valida foi encontrada para avaliar.")
 
-    fieldnames = ["image", "dice", "iou", "precision", "recall", "gt_objects", "pred_objects"]
+    fieldnames = ["imagem", "dice", "iou", "precisao", "revocacao", "objetos_reais", "objetos_preditos"]
     if selected_stems and output_csv.exists():
         with output_csv.open("r", newline="", encoding="utf-8-sig") as csv_file:
+            sample = csv_file.readline()
+            csv_file.seek(0)
+            delimiter = ";" if ";" in sample else ","
             existing_rows = [
                 row
-                for row in csv.DictReader(csv_file)
-                if row.get("image") not in selected_stems
+                for row in csv.DictReader(csv_file, delimiter=delimiter)
+                if row.get("imagem", row.get("image")) not in selected_stems
             ]
         rows = existing_rows + rows
 
     rows = [normalize_metric_row(row) for row in rows]
 
     with output_csv.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames, delimiter=";")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(format_metric_row(row) for row in rows)
 
     print("\nMetricas por imagem:", flush=True)
     for row in rows:
         print(
-            f"{row['image']}: "
+            f"{row['imagem']}: "
             f"Dice={row['dice']:.4f}, "
             f"IoU={row['iou']:.4f}, "
-            f"Precision={row['precision']:.4f}, "
-            f"Recall={row['recall']:.4f}, "
-            f"GT={row['gt_objects']}, "
-            f"Pred={row['pred_objects']}",
+            f"Precisao={row['precisao']:.4f}, "
+            f"Revocacao={row['revocacao']:.4f}, "
+            f"GT={row['objetos_reais']}, "
+            f"Pred={row['objetos_preditos']}",
             flush=True,
         )
 
     print("\nMedia:", flush=True)
-    for metric in ["dice", "iou", "precision", "recall"]:
+    for metric in ["dice", "iou", "precisao", "revocacao"]:
         mean_value = np.mean([row[metric] for row in rows])
         print(f"{metric}: {mean_value:.4f}", flush=True)
 

@@ -6,8 +6,8 @@ from services.config import save_config, with_derived_paths
 from services.dataset_manifest import manifest_mask_path
 from services.paths import (
     SCRIPTS_DIR,
+    active_image_set_dir,
     active_model_path,
-    dataset_images_dir,
     dataset_masks_dir,
     metrics_csv_path,
     model_outputs_dir,
@@ -44,7 +44,7 @@ class ResultWorkflowMixin:
             return
         self.clear_analysis_caches()
         self.save_prediction_config()
-        input_dir = dataset_images_dir(self.config)
+        input_dir = active_image_set_dir(self.config)
         result_entries = self.result_image_entries()
         selected_stems = list(image_stems) if image_stems else None
         args = [
@@ -239,33 +239,37 @@ class ResultWorkflowMixin:
         self.run_script("Gerar CSVs de medidas", args)
 
     def run_metrics_for_current_result_image(self):
-        stem = self.current_result_image_stem()
-        if not stem:
-            QMessageBox.information(self, "Recalcular metrica", "Selecione uma imagem na lista.")
+        stems = self.context_result_image_stems()
+        if not stems:
+            QMessageBox.information(self, "Recalcular metrica", "Selecione ou marque uma ou mais imagens na tabela.")
             return
-        self.run_metrics_for_result_image(stem, interactive=True)
+        self.run_metrics_for_result_images(stems, interactive=True)
 
     def run_metrics_for_result_image(self, stem, interactive=False):
+        return self.run_metrics_for_result_images([stem], interactive=interactive)
+
+    def run_metrics_for_result_images(self, stems, interactive=False):
         if self.process_runner.is_running():
             if interactive:
                 self.show_process_in_progress()
             elif hasattr(self, "result_progress_label"):
                 self.result_progress_label.setText(
-                    f"Mascara salva para {stem}, mas ha um processo em andamento. Recalcule depois."
+                    f"Mascara salva para {', '.join(stems)}, mas ha um processo em andamento. Recalcule depois."
                 )
             return False
-        if not self.result_prediction_exists(stem):
+        valid_stems = [stem for stem in stems if self.result_prediction_exists(stem)]
+        if not valid_stems:
             if interactive:
                 QMessageBox.information(
                     self,
                     "Recalcular metrica",
-                    "Esta imagem ainda nao tem mascara de predicao para recalcular.",
+                    "Nenhuma imagem selecionada tem mascara de predicao para recalcular.",
                 )
             return False
 
         self.pending_actions.clear()
-        self.pending_result_stems = [stem]
-        if self.result_ground_truth_masks([stem]):
+        self.pending_result_stems = valid_stems
+        if self.result_ground_truth_masks(valid_stems):
             self.pending_actions.extend([self.run_evaluation_then_measurements, self.run_cell_measurements])
         else:
             self.pending_actions.append(self.run_cell_measurements)

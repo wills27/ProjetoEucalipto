@@ -25,6 +25,8 @@ from services.overlay_rendering import draw_mask_ids
 from services.paths import cell_counts_csv_path, cell_measurements_csv_path, overlays_dir, predictions_dir
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
+MAX_TARGET_DIMENSION = 13000
+
 
 class _OverlaySignals(QObject):
     ready = pyqtSignal(str, object, object, object, object)
@@ -172,6 +174,13 @@ class ResultsViewerDialog(QDialog):
         self.preview_scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_scroll_area.setWidget(self.result_preview)
         self.result_preview.pan_scroll_area = self.preview_scroll_area
+        zoom_bar = QHBoxLayout()
+        self.zoom_percent_label = QLabel("100%")
+        self.zoom_percent_label.setObjectName("hint")
+        zoom_bar.addWidget(self.zoom_percent_label)
+        zoom_bar.addStretch()
+        window.add_button(zoom_bar, "Ajustar zoom", self.reset_zoom)
+        visual_layout.addLayout(zoom_bar)
         visual_layout.addWidget(self.preview_scroll_area, 1)
         self.tabs.addTab(visual_tab, "Visualizacao")
 
@@ -217,8 +226,8 @@ class ResultsViewerDialog(QDialog):
         if counts_rows and len(counts_rows) > 1:
             headers = counts_rows[0]
             try:
-                fn_idx = headers.index("filename")
-                cc_idx = headers.index("cell_count")
+                fn_idx = headers.index("imagem")
+                cc_idx = headers.index("quantidade_celulas")
                 for row in counts_rows[1:]:
                     if len(row) > max(fn_idx, cc_idx):
                         try:
@@ -230,6 +239,8 @@ class ResultsViewerDialog(QDialog):
 
         self.image_list.clear()
         for stem in self.window.result_image_entries():
+            if not self.window.result_overlay_exists(stem):
+                continue
             count = cell_count_by_stem.get(stem)
             display = f"{stem}  ({count})" if count is not None else stem
             item = QListWidgetItem(display)
@@ -259,7 +270,7 @@ class ResultsViewerDialog(QDialog):
             return
         headers = rows[0]
         try:
-            fn_idx = headers.index("filename")
+            fn_idx = headers.index("imagem")
         except ValueError:
             self.window.populate_csv_table(self.measurements_table, rows)
             return
@@ -280,8 +291,8 @@ class ResultsViewerDialog(QDialog):
         headers = rows[0]
         for row in rows[1:]:
             values = {header: row[index] if index < len(row) else "" for index, header in enumerate(headers)}
-            filename = values.get("filename", "")
-            cell_id = values.get("cell_id", "")
+            filename = values.get("imagem", "")
+            cell_id = values.get("id_celula", "")
             if filename and cell_id:
                 self.measurements_by_image.setdefault(filename, {})[cell_id] = values
 
@@ -421,7 +432,7 @@ class ResultsViewerDialog(QDialog):
         if cell_id is None:
             return None, None
         cols = self._measurements_col_index()
-        cell_id_col = cols.get("cell_id")
+        cell_id_col = cols.get("id_celula")
         if cell_id_col is None:
             return None, None
         for row in range(self.measurements_table.rowCount()):
@@ -437,7 +448,7 @@ class ResultsViewerDialog(QDialog):
 
     def _label_for_measurements_row(self, table_row):
         cols = self._measurements_col_index()
-        cell_id_col = cols.get("cell_id")
+        cell_id_col = cols.get("id_celula")
         if cell_id_col is None:
             return None
         item = self.measurements_table.item(table_row, cell_id_col)
@@ -557,6 +568,7 @@ class ResultsViewerDialog(QDialog):
         viewport_size = self.preview_scroll_area.viewport().size()
         fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
         scale = max(0.05, fit_scale * self.zoom)
+        scale = min(scale, MAX_TARGET_DIMENSION / max(width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
         pixmap = self.current_preview_pixmap.scaled(
@@ -571,6 +583,8 @@ class ResultsViewerDialog(QDialog):
         self.result_preview._display_offset_x = (self.result_preview.width() - pixmap.width()) / 2
         self.result_preview._display_offset_y = (self.result_preview.height() - pixmap.height()) / 2
         self.result_preview.setPixmap(pixmap)
+        if hasattr(self, "zoom_percent_label"):
+            self.zoom_percent_label.setText(f"{self.result_preview._display_scale * 100:.0f}%")
 
     def zoom_preview(self, delta, source_label=None, x=None, y=None):
         factor = 1.15 if delta > 0 else 1 / 1.15
@@ -586,7 +600,12 @@ class ResultsViewerDialog(QDialog):
             point = self.widget_to_image_xy(source_label, x, y)
             viewport_x = x - self.preview_scroll_area.horizontalScrollBar().value()
             viewport_y = y - self.preview_scroll_area.verticalScrollBar().value()
-        self.zoom = max(0.2, min(30.0, self.zoom * factor))
+        width, height = self.current_preview_image.size
+        viewport_size = self.preview_scroll_area.viewport().size()
+        fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
+        max_absolute_scale = MAX_TARGET_DIMENSION / max(width, height)
+        max_zoom = max_absolute_scale / fit_scale if fit_scale > 0 else 150.0
+        self.zoom = max(0.2, min(max_zoom, self.zoom * factor))
         self.set_preview_pixmap()
         if point is not None and viewport_x is not None and viewport_y is not None:
             scale = getattr(self.result_preview, "_display_scale", 1.0)
@@ -606,9 +625,9 @@ class ResultsViewerDialog(QDialog):
             if header is None:
                 continue
             text = header.text().lower()
-            if text == "filename":
+            if text == "imagem":
                 filename_col = col
-            elif text == "cell_id":
+            elif text == "id_celula":
                 cell_id_col = col
         if filename_col is None or cell_id_col is None:
             return

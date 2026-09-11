@@ -129,9 +129,9 @@ class ResultActionsMixin:
 
     def invalidate_result_metrics(self, stem):
         removed = 0
-        removed += self.remove_rows_from_csv(metrics_csv_path(self.config), "image", stem)
-        removed += self.remove_rows_from_csv(cell_counts_csv_path(self.config), "filename", stem)
-        removed += self.remove_rows_from_csv(cell_measurements_csv_path(self.config), "filename", stem)
+        removed += self.remove_rows_from_csv(metrics_csv_path(self.config), "imagem", stem)
+        removed += self.remove_rows_from_csv(cell_counts_csv_path(self.config), "imagem", stem)
+        removed += self.remove_rows_from_csv(cell_measurements_csv_path(self.config), "imagem", stem)
         return removed
 
     def result_overlay_exists(self, stem, preferred_only=False):
@@ -178,6 +178,9 @@ class ResultActionsMixin:
         self.build_result_status_index(entries)
 
     def result_image_entries(self):
+        from services.paths import is_default_image_set
+        if is_default_image_set(self.config):
+            return {}
         if self.result_entries_cache is not None:
             return self.result_entries_cache
         self.result_entries_cache = collect_result_image_entries(self.config, self.load_dataset_plan())
@@ -275,9 +278,9 @@ class ResultActionsMixin:
                     continue
                 moved_paths.append(self.move_to_removed_folder(source_path, removed_dir))
 
-            csv_updates += self.remove_rows_from_csv(metrics_csv_path(self.config), "image", image_stem)
-            csv_updates += self.remove_rows_from_csv(cell_counts_csv_path(self.config), "filename", image_stem)
-            csv_updates += self.remove_rows_from_csv(cell_measurements_csv_path(self.config), "filename", image_stem)
+            csv_updates += self.remove_rows_from_csv(metrics_csv_path(self.config), "imagem", image_stem)
+            csv_updates += self.remove_rows_from_csv(cell_counts_csv_path(self.config), "imagem", image_stem)
+            csv_updates += self.remove_rows_from_csv(cell_measurements_csv_path(self.config), "imagem", image_stem)
 
         self.clear_analysis_caches()
         self.preview_label.setText("Selecione uma imagem.")

@@ -13,6 +13,7 @@ from ui.analysis_presenter import AnalysisPresenterMixin
 from ui.dataset_preview_presenter import DatasetPreviewPresenterMixin
 from ui.dataset_presenter import DatasetPresenterMixin
 from ui.dialogs.error_dialog import ErrorDialog
+from ui.image_set_presenter import ImageSetPresenterMixin
 from ui.model_presenter import ModelPresenterMixin
 from ui.page_builders import UiBuilderMixin
 from ui.prediction_import_presenter import PredictionImportPresenterMixin
@@ -40,6 +41,7 @@ class CellposeWindow(
     ResultWorkflowMixin,
     ResultsPresenterMixin,
     PredictionImportPresenterMixin,
+    ImageSetPresenterMixin,
     ModelPresenterMixin,
     ProcessPresenterMixin,
     ProjectPresenterMixin,

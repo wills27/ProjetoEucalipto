@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
 
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
+MAX_TARGET_DIMENSION = 13000
+
 
 class AnnotationEditorDialog(QDialog):
     def __init__(
@@ -71,6 +73,12 @@ class AnnotationEditorDialog(QDialog):
         self.scroll_area.setWidget(self.preview_label)
         self.preview_label.pan_button = Qt.MouseButton.LeftButton
         self.preview_label.pan_scroll_area = self.scroll_area
+        zoom_bar = QHBoxLayout()
+        self.zoom_percent_label = QLabel("100%")
+        self.zoom_percent_label.setObjectName("hint")
+        zoom_bar.addWidget(self.zoom_percent_label)
+        zoom_bar.addStretch()
+        preview_layout.addLayout(zoom_bar)
         preview_layout.addWidget(self.scroll_area, 1)
         layout.addWidget(preview_box, 1)
 
@@ -113,7 +121,7 @@ class AnnotationEditorDialog(QDialog):
         save_button = QPushButton("Salvar mascara")
         save_button.setObjectName("primary")
         save_button.clicked.connect(save_callback)
-        clear_button = QPushButton("Limpar mascara")
+        clear_button = QPushButton("Apagar tudo")
         clear_button.clicked.connect(clear_callback)
         undo_button = QPushButton("Desfazer")
         undo_button.clicked.connect(undo_callback)
@@ -211,7 +219,12 @@ class AnnotationEditorDialog(QDialog):
             viewport_y = y - self.scroll_area.verticalScrollBar().value()
 
         factor = 1.15 if delta > 0 else 1 / 1.15
-        self.zoom = max(0.2, min(30.0, self.zoom * factor))
+        width, height = self.current_image.size
+        viewport_size = self.scroll_area.viewport().size()
+        fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
+        max_absolute_scale = MAX_TARGET_DIMENSION / max(width, height)
+        max_zoom = max_absolute_scale / fit_scale if fit_scale > 0 else 150.0
+        self.zoom = max(0.2, min(max_zoom, self.zoom * factor))
         self._set_preview_pixmap()
 
         if point is not None and viewport_x is not None and viewport_y is not None:
@@ -249,12 +262,15 @@ class AnnotationEditorDialog(QDialog):
         self.preview_label._display_offset_x = (self.preview_label.width() - pixmap.width()) / 2
         self.preview_label._display_offset_y = (self.preview_label.height() - pixmap.height()) / 2
         self.preview_label.setPixmap(pixmap)
+        if hasattr(self, "zoom_percent_label"):
+            self.zoom_percent_label.setText(f"{self.preview_label._display_scale * 100:.0f}%")
 
     def preview_scale_for_size(self, image_size):
         width, height = image_size
         viewport_size = self.scroll_area.viewport().size()
         fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
-        return max(0.05, fit_scale * self.zoom)
+        scale = max(0.05, fit_scale * self.zoom)
+        return min(scale, MAX_TARGET_DIMENSION / max(width, height))
 
     def _panel(self, title):
         box = QGroupBox(title)

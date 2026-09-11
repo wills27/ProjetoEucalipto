@@ -38,16 +38,25 @@ def dataset_row_matches_filters(row_number, row_data, group_text, group_value, s
     return True
 
 
-def dataset_selection_summary_text(entries, visible_count):
+def dataset_selection_summary_text(entries, visible_count, roi_by_group=None):
     summary = summarize_table_entries(entries)
-    groups = summary["groups"]
-    return (
+    text = (
         f"Imagens: {summary['total']}\n"
         f"Visiveis: {visible_count}\n"
         f"Pares validos: {summary['valid']}\n"
         f"Selecionadas: {summary['selected']}\n"
         f"Sem mascara: {summary['problems']}"
     )
+    if roi_by_group is not None:
+        text += (
+            f"\nROIs treino: {roi_by_group.get('train', 0)}"
+            f"\nROIs validacao: {roi_by_group.get('val', 0)}"
+            f"\nROIs teste (nao usado no treino): {roi_by_group.get('test', 0)}"
+        )
+        auto_rois = roi_by_group.get("auto", 0)
+        if auto_rois:
+            text += f"\nROIs a dividir (auto): {auto_rois}"
+    return text
 
 
 def dataset_pair_removal_targets(row_data):

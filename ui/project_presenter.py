@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from services.config import load_config, save_config, with_derived_paths
 from services.model_service import first_model_name
 from services.paths import (
+    DEFAULT_IMAGE_SET,
     active_project_dir,
     delete_project as delete_project_folder,
     ensure_project_structure,
@@ -70,6 +71,7 @@ class ProjectPresenterMixin:
         self.reset_project_dependent_state()
         self.config["active_project"] = project_name
         self.config["active_model"] = first_model_name(self.config)
+        self.config["active_image_set"] = DEFAULT_IMAGE_SET
         self.config = with_derived_paths(self.config)
         self.clear_analysis_caches()
         save_config(self.config)
@@ -85,6 +87,7 @@ class ProjectPresenterMixin:
         self.reset_project_dependent_state()
         self.config["active_project"] = name
         self.config["active_model"] = ""
+        self.config["active_image_set"] = DEFAULT_IMAGE_SET
         ensure_project_structure(active_project_dir(self.config))
         self.config = with_derived_paths(self.config)
         save_config(self.config)
@@ -134,6 +137,7 @@ class ProjectPresenterMixin:
             self.config["active_project"] = "eucalipto"
             self.config["active_model"] = ""
             ensure_project_structure(active_project_dir(self.config))
+        self.config["active_image_set"] = DEFAULT_IMAGE_SET
         self.config = with_derived_paths(self.config)
         self.clear_analysis_caches()
         save_config(self.config)
@@ -198,6 +202,7 @@ class ProjectPresenterMixin:
             self.config["active_project"] = "eucalipto"
             self.config["active_model"] = ""
             ensure_project_structure(active_project_dir(self.config))
+        self.config["active_image_set"] = DEFAULT_IMAGE_SET
         self.config = with_derived_paths(self.config)
         save_config(self.config)
         self.refresh_all()
@@ -206,6 +211,7 @@ class ProjectPresenterMixin:
         self.config = load_config()
         ensure_project_structure(active_project_dir(self.config))
         self.refresh_project_selector()
+        self.refresh_image_set_selector()
         self.refresh_project()
         self.refresh_dataset_import()
         self.refresh_project_models_table()
@@ -219,6 +225,7 @@ class ProjectPresenterMixin:
         self.config = load_config()
         ensure_project_structure(active_project_dir(self.config))
         self.refresh_project_selector()
+        self.refresh_image_set_selector()
         self.refresh_project()
         self.refresh_prediction()
         self.refresh_calibration_labels()
@@ -251,16 +258,18 @@ class ProjectPresenterMixin:
         QTimer.singleShot(50, self.run_next_deferred_startup_step)
 
     def refresh_project_selector(self):
-        if not hasattr(self, "project_combo"):
-            return
-        self.project_combo.blockSignals(True)
-        self.project_combo.clear()
         projects = list_projects(self.config)
-        self.project_combo.addItems(projects)
-        index = self.project_combo.findText(self.config["active_project"])
-        if index >= 0:
-            self.project_combo.setCurrentIndex(index)
-        self.project_combo.blockSignals(False)
+        for combo_attr in ("project_combo", "sidebar_project_combo"):
+            combo = getattr(self, combo_attr, None)
+            if combo is None:
+                continue
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(projects)
+            index = combo.findText(self.config["active_project"])
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.blockSignals(False)
 
     def refresh_project(self):
         self.refresh_project_models_table()

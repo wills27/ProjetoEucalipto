@@ -6,13 +6,23 @@ from PyQt6.QtWidgets import QHeaderView, QMessageBox, QTableWidgetItem
 
 from services.config import save_config, with_derived_paths
 from services.metrics import format_size
-from services.model_service import delete_model, first_model_name, list_model_names, list_model_paths
+from services.model_service import (
+    delete_model,
+    delete_shared_model,
+    first_model_name,
+    list_available_model_names,
+    list_model_names,
+    list_model_paths,
+    promote_model_to_shared,
+)
 from services.paths import (
+    active_image_set_dir,
+    active_image_set_name,
     active_model_path,
-    dataset_images_dir,
     metrics_csv_path,
     project_models_dir,
     relative_to_project,
+    shared_models_dir,
 )
 
 
@@ -32,27 +42,32 @@ class ModelPresenterMixin:
             return
 
         models = list_model_paths(self.config)
+        shared_dir = shared_models_dir(self.config)
+        active_name = self.config.get("active_model") or ""
+
         self.project_models_table.setRowCount(len(models))
         active_row = None
         for row, model_path in enumerate(models):
+            is_active = model_path.name == active_name
+            in_shared = (shared_dir / model_path.name).exists()
             values = [
                 model_path.name,
                 format_size(model_path.stat().st_size),
-                time.strftime("%d/%m/%Y %H:%M", time.localtime(model_path.stat().st_mtime)),
-                "sim" if metrics_csv_path(self.config, model_path.name).exists() else "nao",
+                time.strftime("%d/%m/%Y", time.localtime(model_path.stat().st_mtime)),
+                "✓" if metrics_csv_path(self.config, model_path.name).exists() else "–",
+                "✓" if in_shared else "–",
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if model_path.name == self.config["active_model"]:
-                    item.setForeground(QColor("#1f2933"))
+                if is_active:
+                    item.setBackground(QColor("#dff0d8"))
+                if col in (3, 4):
+                    item.setTextAlignment(0x84)  # AlignCenter
                 self.project_models_table.setItem(row, col, item)
-            if model_path.name == self.config["active_model"]:
+            if is_active:
                 active_row = row
-            self.project_models_table.setRowHeight(row, 30)
+            self.project_models_table.setRowHeight(row, 36)
 
-        self.project_models_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in range(1, 4):
-            self.project_models_table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         if active_row is not None:
             self.project_models_table.selectRow(active_row)
         else:
@@ -61,7 +76,7 @@ class ModelPresenterMixin:
     def refresh_prediction(self):
         self.config = with_derived_paths(self.config)
         self.predict_model_label.setText(self.config["active_model"] or "Nenhum modelo selecionado")
-        self.pred_input.setText(relative_to_project(dataset_images_dir(self.config), self.config))
+        self.pred_input.setText(relative_to_project(active_image_set_dir(self.config), self.config))
         self.pred_output.setText(self.config["predictions_dir"])
         self.pred_padding.setText(str(self.config["padding_pixels"]))
         self.pred_diameter.setText(str(self.config["diameter"]))
@@ -88,7 +103,8 @@ class ModelPresenterMixin:
         if not hasattr(self, "home_model_combo"):
             return
 
-        models = list_model_names(self.config)
+        image_set = active_image_set_name(self.config)
+        models = list_available_model_names(self.config, image_set)
         self.home_model_combo.blockSignals(True)
         self.home_model_combo.clear()
         self.home_model_combo.addItem("Selecione um modelo", "")
@@ -97,6 +113,11 @@ class ModelPresenterMixin:
 
         active_model = self.config.get("active_model") or ""
         index = self.home_model_combo.findData(active_model)
+        if index < 0 and active_model:
+            # Modelo salvo no config nao existe mais — limpa
+            self.config["active_model"] = ""
+            save_config(self.config)
+            index = 0
         self.home_model_combo.setCurrentIndex(index if index >= 0 else 0)
         self.home_model_combo.blockSignals(False)
 
@@ -148,13 +169,17 @@ class ModelPresenterMixin:
             return
 
         try:
-            delete_model(self.config, model_name)
+            if (shared_models_dir(self.config) / model_name).exists():
+                delete_shared_model(self.config, model_name)
+            else:
+                delete_model(self.config, model_name)
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Remover modelo", f"Nao foi possivel remover o modelo:\n{error}")
             return
 
         if self.config.get("active_model") == model_name:
-            self.config["active_model"] = first_model_name(self.config)
+            image_set = active_image_set_name(self.config)
+            self.config["active_model"] = first_model_name(self.config, image_set)
             self.config = with_derived_paths(self.config)
         save_config(self.config)
         self.refresh_all()
@@ -168,3 +193,23 @@ class ModelPresenterMixin:
             QMessageBox.information(self, "Modelo", "Selecione um modelo na tabela.")
             return
         self.set_active_model(self.project_models_table.item(row, 0).text())
+
+    def promote_active_model(self):
+        model_name = self.config.get("active_model")
+        if not model_name:
+            QMessageBox.information(self, "Promover modelo", "Nenhum modelo ativo para promover.")
+            return
+        if (shared_models_dir(self.config) / model_name).exists():
+            QMessageBox.information(self, "Promover modelo", f"Modelo '{model_name}' ja esta nos modelos compartilhados.")
+            return
+        if not (project_models_dir(self.config) / model_name).exists():
+            QMessageBox.information(self, "Promover modelo", f"Modelo '{model_name}' nao encontrado no projeto.")
+            return
+        try:
+            promote_model_to_shared(self.config, model_name)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Promover modelo", f"Nao foi possivel promover o modelo:\n{error}")
+            return
+        self.append_log(f"\n>>> Modelo promovido para compartilhados\nModelo: {model_name}\n")
+        self.refresh_home_model_selector()
+        QMessageBox.information(self, "Promover modelo", f"Modelo '{model_name}' copiado para modelos compartilhados.")

@@ -9,6 +9,7 @@ DEFAULT_CONFIG = {
     "active_project": "eucalipto",
     "projects_dir": str(default_projects_dir()),
     "active_model": "cpsam_vasos_eucalipto_v1",
+    "active_image_set": "__default__",
     "padding_pixels": 64,
     "diameter": 0.0,
     "cellprob_threshold": 0.0,
@@ -22,6 +23,7 @@ DEFAULT_CONFIG = {
         "source_image": "",
     },
     "import_dataset_prefix_folders": False,
+    "calibration_last_image_dir": "",
 }
 
 

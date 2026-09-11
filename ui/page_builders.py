@@ -47,6 +47,23 @@ class UiBuilderMixin:
         sidebar_layout.setSpacing(6)
         body.addWidget(sidebar, 0)
 
+        image_set_label = QLabel("Conjunto de imagens")
+        image_set_label.setObjectName("sidebarSection")
+        sidebar_layout.addWidget(image_set_label)
+        self.image_set_combo = QComboBox()
+        self.image_set_combo.currentIndexChanged.connect(self.on_image_set_selector_changed)
+        sidebar_layout.addWidget(self.image_set_combo)
+        self.image_set_badge = QLabel()
+        self.image_set_badge.setObjectName("imageSetBadge")
+        self.image_set_badge.setWordWrap(True)
+        self.image_set_badge.hide()
+        sidebar_layout.addWidget(self.image_set_badge)
+        self.add_button(sidebar_layout, "Novo conjunto", self.create_image_set)
+        self.add_button(sidebar_layout, "Importar imagens", self.import_images_into_active_image_set)
+        self.add_button(sidebar_layout, "Remover conjunto", self.delete_active_image_set)
+
+        sidebar_layout.addSpacing(8)
+
         model_label = QLabel("Modelo")
         model_label.setObjectName("sidebarSection")
         sidebar_layout.addWidget(model_label)
@@ -61,7 +78,6 @@ class UiBuilderMixin:
         self.add_button(sidebar_layout, "Calibracao", self.open_calibration_dialog)
 
         sidebar_layout.addStretch()
-        self.add_button(sidebar_layout, "Atualizar", self.refresh_all)
 
         self.stack = QStackedWidget()
         body.addWidget(self.stack, 1)
@@ -142,14 +158,15 @@ class UiBuilderMixin:
             self.delete_selected_dataset_pair,
             self.move_selected_dataset_rows_to_group,
             0,
-            5,
+            6,
         )
-        self.dataset_pairs_table.setHorizontalHeaderLabels(["", "#", "Grupo", "Imagem", "Status"])
+        self.dataset_pairs_table.setHorizontalHeaderLabels(["", "#", "Grupo", "Imagem", "Status", "ROIs"])
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.verticalHeader().setVisible(False)
         self.dataset_pairs_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.dataset_pairs_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -160,6 +177,9 @@ class UiBuilderMixin:
         validation_actions = QHBoxLayout()
         self.dataset_import_button = self.add_button(validation_actions, "Importar imagens", self.import_dataset_folder)
         self.dataset_split_button = self.add_button(validation_actions, "Separar treino/teste", self.auto_split_dataset_table)
+        self.dataset_export_test_button = self.add_button(
+            validation_actions, "Exportar teste → conjunto", self.export_test_images_to_image_set
+        )
         validation_actions.addStretch()
         table_layout.addLayout(validation_actions)
 
@@ -258,6 +278,7 @@ class UiBuilderMixin:
         self.dataset_group_filter.setVisible(split)
         self.dataset_include_filter.setVisible(split)
         self.dataset_split_button.setVisible(split)
+        self.dataset_export_test_button.setVisible(split)
         self.dataset_import_button.setVisible(not split)
         self.dataset_pairs_table.move_callback = (
             self.move_selected_dataset_rows_to_group if split else None

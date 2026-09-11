@@ -3,19 +3,10 @@
 from PyQt6.QtCore import QThread, Qt
 from PyQt6.QtWidgets import (
     QApplication,
-    QButtonGroup,
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
-    QFrame,
-    QHBoxLayout,
-    QLineEdit,
     QMessageBox,
-    QRadioButton,
-    QVBoxLayout,
 )
+from ui.dialogs.import_images_dialog import ImportImagesDialog
 
 from services.config import save_config, with_derived_paths
 from services.dataset_manifest import update_plan_entry_group
@@ -24,6 +15,7 @@ from services.paths import (
     dataset_images_dir,
     project_models_dir,
     relative_to_project,
+    shared_models_dir,
 )
 from services.prediction_import import (
     available_import_destination,
@@ -44,13 +36,13 @@ class PredictionImportPresenterMixin:
         files, _filter = QFileDialog.getOpenFileNames(
             self,
             "Escolher modelos para importar",
-            str(project_models_dir(self.config)),
+            str(shared_models_dir(self.config)),
             "Arquivos de modelo (*.*)",
         )
         if not files:
             return
 
-        target_dir = project_models_dir(self.config)
+        target_dir = shared_models_dir(self.config)
         self.append_log(
             f"\n>>> Importar modelos\n"
             f"Destino: {target_dir}\n"
@@ -102,99 +94,26 @@ class PredictionImportPresenterMixin:
             )
 
     def open_prediction_image_import_dialog(self):
-        options = self.prediction_image_import_options()
-        if not options:
+        dialog = ImportImagesDialog(
+            self,
+            allow_files=True,
+            show_prefix=False,
+            defaults={
+                "recursive": self.config.get("import_results_recursive", True),
+                "skip_keyword": self.config.get("import_results_skip_keyword", ""),
+                "grayscale": self.config.get("import_results_grayscale", False),
+            },
+        )
+        if dialog.exec() != ImportImagesDialog.DialogCode.Accepted:
             return
+
+        options = dialog.result_options()
+        options["convert_to_grayscale"] = options.pop("grayscale")
 
         if options["mode"] == "files":
             self.import_prediction_image_files(options)
         else:
             self.import_prediction_image_folder(options)
-
-    def prediction_image_import_options(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Importar imagens")
-        dialog.setModal(True)
-        dialog.setMinimumWidth(360)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(14)
-
-        mode_group = QButtonGroup(dialog)
-        files_radio = QRadioButton("Imagens selecionadas")
-        folder_radio = QRadioButton("Pasta")
-        files_radio.setObjectName("choice")
-        folder_radio.setObjectName("choice")
-        mode_group.addButton(files_radio)
-        mode_group.addButton(folder_radio)
-        files_radio.setChecked(True)
-
-        content_box = QFrame()
-        content_box.setObjectName("dialogSection")
-        content_layout = QVBoxLayout(content_box)
-        content_layout.setContentsMargins(12, 10, 12, 12)
-        content_layout.setSpacing(10)
-
-        origin_choices = QHBoxLayout()
-        origin_choices.setSpacing(18)
-        origin_choices.addWidget(files_radio)
-        origin_choices.addWidget(folder_radio)
-        origin_choices.addStretch()
-        content_layout.addLayout(origin_choices)
-
-        recursive_check = QCheckBox("Incluir subpastas")
-        recursive_check.setChecked(bool(self.config.get("import_results_recursive", True)))
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(10)
-
-        grayscale_check = QCheckBox("Converter para cinza")
-        grayscale_check.setChecked(bool(self.config.get("import_results_grayscale", False)))
-        skip_keyword = QLineEdit(str(self.config.get("import_results_skip_keyword", "")))
-        skip_keyword.setPlaceholderText("mask, overlay, temp")
-
-        form.addRow("Ignorar contendo", skip_keyword)
-        form.addRow("", grayscale_check)
-        content_layout.addWidget(recursive_check)
-        content_layout.addLayout(form)
-        layout.addWidget(content_box)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Continuar")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        def update_folder_options():
-            folder_mode = folder_radio.isChecked()
-            recursive_check.setEnabled(folder_mode)
-            skip_keyword.setEnabled(folder_mode)
-            files_radio.setProperty("selected", files_radio.isChecked())
-            folder_radio.setProperty("selected", folder_radio.isChecked())
-            files_radio.style().unpolish(files_radio)
-            files_radio.style().polish(files_radio)
-            folder_radio.style().unpolish(folder_radio)
-            folder_radio.style().polish(folder_radio)
-
-        files_radio.toggled.connect(update_folder_options)
-        folder_radio.toggled.connect(update_folder_options)
-        update_folder_options()
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-
-        return {
-            "mode": "folder" if folder_radio.isChecked() else "files",
-            "recursive": recursive_check.isChecked(),
-            "keyword": skip_keyword.text().strip().lower(),
-            "convert_to_grayscale": grayscale_check.isChecked(),
-        }
 
     def import_prediction_image_files(self, options=None):
         options = options or self.default_prediction_import_options(mode="files")

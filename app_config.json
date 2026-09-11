@@ -1,22 +1,26 @@
 {
   "active_project": "Carol",
   "projects_dir": "",
-  "active_model": "Carol",
-  "padding_pixels": 64,
-  "diameter": 100.0,
+  "active_model": "cpsam_vasos_eucalipto_v2",
+  "active_image_set": "TesteWill",
+  "padding_pixels": 32,
+  "diameter": 70.0,
   "cellprob_threshold": 0.0,
   "flow_threshold": 0.4,
   "calibration": {
     "unit": "um",
-    "unit_per_pixel": 0.3360610286828088,
-    "pixel_distance": 297.565,
+    "unit_per_pixel": 1.0611430633077952,
+    "pixel_distance": 94.238,
     "real_distance": 100.0,
     "source": "external_image",
-    "source_image": "C:\\Users\\santa\\Desktop\\partes\\BA-A2-2_inferior_direita.jpeg"
+    "source_image": "C:\\Users\\santa\\Downloads\\Escala\\50x.jpg"
   },
   "import_dataset_prefix_folders": false,
+  "calibration_last_image_dir": "",
   "import_results_grayscale": true,
   "import_dataset_recursive": true,
   "import_dataset_skip_keyword": "",
-  "import_dataset_grayscale": false
+  "import_dataset_grayscale": true,
+  "import_results_recursive": true,
+  "import_results_skip_keyword": ""
 }

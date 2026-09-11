@@ -22,6 +22,7 @@ DATASET_NUMBER_COL = 1
 DATASET_GROUP_COL = 2
 DATASET_IMAGE_COL = 3
 DATASET_STATUS_COL = 4
+DATASET_ROI_COL = 5
 
 
 class DatasetPresenterMixin:
@@ -77,19 +78,28 @@ class DatasetPresenterMixin:
             len(list(masks_dir.glob("*_masks.tif")))
             + len(list(masks_dir.glob("*_masks.tiff")))
         )
-        selected_count = sum(
-            1
+        selected_rows = [
+            row
             for row in rows
             if row["status"] in {"Com mascara", "Sem mascara"}
             and plan.get(row["image"], {}).get("group", "auto") != "uncategorized"
-        )
+        ]
+        selected_count = len(selected_rows)
+        roi_by_group = {}
+        for row in selected_rows:
+            group = plan.get(row["image"], {}).get("group", "auto")
+            roi_by_group[group] = roi_by_group.get(group, 0) + row.get("mask_objects", 0)
 
         self.dataset_validation_summary.setText(
             f"Imagens: {image_count}\n"
             f"Mascaras: {seg_count + tif_mask_count}\n"
             f"Pares validos: {valid_count}\n"
             f"Selecionadas: {selected_count}\n"
-            f"Sem mascara: {missing_count}\n"
+            f"ROIs treino: {roi_by_group.get('train', 0)}\n"
+            f"ROIs validacao: {roi_by_group.get('val', 0)}\n"
+            f"ROIs teste (nao usado no treino): {roi_by_group.get('test', 0)}\n"
+            + (f"ROIs a dividir (auto): {roi_by_group.get('auto', 0)}\n" if roi_by_group.get("auto") else "")
+            + f"Sem mascara: {missing_count}\n"
             f"Mascaras removidas: {removed_invalid_count}\n"
             f"Outros status: {invalid_count}"
         )
@@ -144,6 +154,11 @@ class DatasetPresenterMixin:
                         self.apply_dataset_status_style(item, value)
                     item.setData(Qt.ItemDataRole.UserRole, row)
                     self.dataset_pairs_table.setItem(row_index, col + DATASET_IMAGE_COL, item)
+
+                roi_item = QTableWidgetItem(str(row.get("mask_objects", 0)))
+                roi_item.setFlags(roi_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                roi_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.dataset_pairs_table.setItem(row_index, DATASET_ROI_COL, roi_item)
                 self.dataset_pairs_table.setRowHeight(row_index, 30)
 
             for row_index, row in enumerate(rows):
@@ -165,6 +180,7 @@ class DatasetPresenterMixin:
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_GROUP_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_IMAGE_COL, QHeaderView.ResizeMode.Stretch)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_STATUS_COL, QHeaderView.ResizeMode.ResizeToContents)
+        self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_ROI_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.apply_dataset_filter()
         if rows:
             selected_row = 0
@@ -214,7 +230,11 @@ class DatasetPresenterMixin:
         if group_combo:
             group_combo.setEnabled(can_include)
 
-        for col, value in [(DATASET_IMAGE_COL, row_data["image"]), (DATASET_STATUS_COL, row_data["status"])]:
+        for col, value in [
+            (DATASET_IMAGE_COL, row_data["image"]),
+            (DATASET_STATUS_COL, row_data["status"]),
+            (DATASET_ROI_COL, str(row_data.get("mask_objects", 0))),
+        ]:
             item = self.dataset_pairs_table.item(target_row, col)
             if item is None:
                 item = QTableWidgetItem()
@@ -378,8 +398,15 @@ class DatasetPresenterMixin:
             for row in range(self.dataset_pairs_table.rowCount())
             if not self.dataset_pairs_table.isRowHidden(row)
         )
+        roi_by_group = {}
+        for row in range(self.dataset_pairs_table.rowCount()):
+            group_combo = self.dataset_pairs_table.cellWidget(row, DATASET_GROUP_COL)
+            group_value = group_combo.currentData() if group_combo else "uncategorized"
+            row_data = self.dataset_pair_row_data(row) or {}
+            if group_value not in ("", "uncategorized") and row_data.get("status") in {"Com mascara", "Sem mascara"}:
+                roi_by_group[group_value] = roi_by_group.get(group_value, 0) + row_data.get("mask_objects", 0)
         self.dataset_validation_summary.setText(
-            dataset_selection_summary_text(self.dataset_plan_entries_from_table(), visible)
+            dataset_selection_summary_text(self.dataset_plan_entries_from_table(), visible, roi_by_group)
         )
 
     def dataset_plan_entries_from_table(self):

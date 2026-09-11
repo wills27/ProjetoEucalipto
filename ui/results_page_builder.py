@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
-from services.paths import dataset_images_dir, relative_to_project
+from services.paths import active_image_set_dir, relative_to_project
 from ui.widgets import AnnotationPreviewLabel
 from ui.tables.results_images_table import ResultsImagesTable
 
@@ -36,7 +36,7 @@ class ResultsPageBuilderMixin:
         model_layout.setVerticalSpacing(6)
         self.predict_model_label = QLabel()
         self.predict_model_label.setObjectName("largeText")
-        self.pred_input = QLineEdit(relative_to_project(dataset_images_dir(self.config), self.config))
+        self.pred_input = QLineEdit(relative_to_project(active_image_set_dir(self.config), self.config))
         self.pred_output = QLineEdit(self.config["predictions_dir"])
         self.pred_output.setReadOnly(True)
         self.pred_padding = QLineEdit(str(self.config["padding_pixels"]))
@@ -162,9 +162,9 @@ class ResultsPageBuilderMixin:
         self.view_buttons = {}
         for label, mode in [
             ("Original", "original"),
-            ("Overlay", "overlay"),
-            ("50%+", "overlay_50pct"),
-            ("Inteiros", "overlay_inteiros"),
+            ("Mascara", "overlay"),
+            ("Freq. 50%", "overlay_50pct"),
+            ("Freq. 100%", "overlay_inteiros"),
             ("Diametro", "overlay_diametro"),
         ]:
             button = QPushButton(label)

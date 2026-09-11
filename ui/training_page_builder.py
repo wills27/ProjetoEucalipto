@@ -1,5 +1,6 @@
 ﻿from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -32,11 +33,11 @@ class TrainingPageBuilderMixin:
         self._training_wizard_stack = QStackedWidget()
         page_layout.addWidget(self._training_wizard_stack, 1)
 
-        # Passo 1: Projeto e mascaras
+        # Passo 1: Modelos treinados e mascaras
         masks_page = QWidget()
         masks_layout = QVBoxLayout(masks_page)
         masks_layout.setContentsMargins(14, 14, 14, 14)
-        masks_layout.addWidget(self.build_project_panel())
+        masks_layout.addWidget(self._build_training_models_panel())
         self._training_masks_body = QHBoxLayout()
         masks_layout.addLayout(self._training_masks_body, 1)
         self._training_wizard_stack.addWidget(masks_page)
@@ -77,8 +78,12 @@ class TrainingPageBuilderMixin:
         self._wizard_train_button.setObjectName("primary")
         self._wizard_train_button.clicked.connect(self.run_training)
 
+        self._wizard_loss_history_button = QPushButton("Grafico de perda")
+        self._wizard_loss_history_button.clicked.connect(lambda: self._go_to_training_wizard_page(3))
+
         nav_layout.addWidget(self._wizard_exit_button)
         nav_layout.addWidget(self._wizard_back_button)
+        nav_layout.addWidget(self._wizard_loss_history_button)
         nav_layout.addStretch()
         nav_layout.addWidget(self._wizard_next_button)
         nav_layout.addWidget(self._wizard_train_button)
@@ -88,7 +93,7 @@ class TrainingPageBuilderMixin:
     def _go_to_training_wizard_page(self, index):
         self._place_dataset_table_panel(index == 1)
         self._training_wizard_stack.setCurrentIndex(index)
-        self._wizard_back_button.setVisible(index in (1, 2))
+        self._wizard_back_button.setVisible(index in (1, 2, 3))
         self._wizard_next_button.setVisible(index in (0, 1))
         self._wizard_train_button.setVisible(index == 2)
 
@@ -254,7 +259,101 @@ class TrainingPageBuilderMixin:
 
         loss_box = self.panel("Grafico de perda")
         loss_layout = QVBoxLayout(loss_box)
+        loss_toolbar = QHBoxLayout()
+        loss_toolbar.addStretch()
+        self.loss_plot_load_button = QPushButton("Carregar historico")
+        self.loss_plot_load_button.clicked.connect(self.load_loss_history)
+        loss_toolbar.addWidget(self.loss_plot_load_button)
+        self.loss_plot_export_button = QPushButton("Exportar grafico")
+        self.loss_plot_export_button.clicked.connect(self.export_loss_plot)
+        loss_toolbar.addWidget(self.loss_plot_export_button)
+        loss_layout.addLayout(loss_toolbar)
         self.loss_plot = LossPlotWidget(self.train_epochs.value())
         self.train_epochs.valueChanged.connect(lambda value: self.loss_plot.reset(value))
         loss_layout.addWidget(self.loss_plot, 1)
         layout.addWidget(loss_box, 1)
+
+    def _build_training_models_panel(self):
+        box = self.panel("Modelos treinados")
+        layout = QVBoxLayout(box)
+        layout.setSpacing(6)
+
+        project_row = QHBoxLayout()
+        project_row.addWidget(QLabel("Projeto:"))
+        self.project_combo = QComboBox()
+        self.project_combo.currentTextChanged.connect(self.select_project)
+        project_row.addWidget(self.project_combo, 1)
+        new_proj_btn = QPushButton("Novo")
+        new_proj_btn.clicked.connect(self.create_project)
+        del_proj_btn = QPushButton("Deletar")
+        del_proj_btn.clicked.connect(self.delete_project)
+        project_row.addWidget(new_proj_btn)
+        project_row.addWidget(del_proj_btn)
+        layout.addLayout(project_row)
+
+        self.project_models_table = QTableWidget(0, 5)
+        self.project_models_table.setHorizontalHeaderLabels(["Nome", "Tamanho", "Data", "Avaliado", "Compartilhado"])
+        self.project_models_table.verticalHeader().setVisible(False)
+        self.project_models_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.project_models_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.project_models_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.project_models_table.setAlternatingRowColors(True)
+        self.project_models_table.setShowGrid(False)
+        for col in range(5):
+            self.project_models_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.project_models_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.project_models_table.setColumnWidth(0, 200)
+        self.project_models_table.cellDoubleClicked.connect(lambda row, _col: self._use_model_at_row(row))
+        layout.addWidget(self.project_models_table)
+
+        actions = QHBoxLayout()
+        use_btn = QPushButton("Usar modelo")
+        use_btn.clicked.connect(self.select_project_model)
+        promote_btn = QPushButton("Promover para compartilhados")
+        promote_btn.clicked.connect(self._promote_selected_project_model)
+        remove_btn = QPushButton("Remover modelo")
+        remove_btn.clicked.connect(self._remove_selected_project_model)
+        actions.addWidget(use_btn)
+        actions.addWidget(promote_btn)
+        actions.addWidget(remove_btn)
+        actions.addStretch()
+        layout.addLayout(actions)
+        return box
+
+    def _use_model_at_row(self, row):
+        if not hasattr(self, "project_models_table") or row < 0:
+            return
+        item = self.project_models_table.item(row, 0)
+        if item:
+            self.set_active_model(item.text())
+
+    def _promote_selected_project_model(self):
+        if not hasattr(self, "project_models_table"):
+            return
+        row = self.project_models_table.currentRow()
+        if row < 0:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Promover modelo", "Selecione um modelo na tabela.")
+            return
+        model_name = self.project_models_table.item(row, 0).text()
+        original = self.config.get("active_model")
+        self.config["active_model"] = model_name
+        self.promote_active_model()
+        self.config["active_model"] = original
+
+    def _remove_selected_project_model(self):
+        if not hasattr(self, "project_models_table"):
+            return
+        row = self.project_models_table.currentRow()
+        if row < 0:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Remover modelo", "Selecione um modelo na tabela.")
+            return
+        model_name = self.project_models_table.item(row, 0).text()
+        original = self.config.get("active_model")
+        self.config["active_model"] = model_name
+        self.remove_active_model()
+        if self.config.get("active_model") != model_name:
+            pass  # remove_active_model ja atualizou
+        else:
+            self.config["active_model"] = original

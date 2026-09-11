@@ -57,7 +57,7 @@ class ResultsImagesTable(QTableWidget):
             generate_current_action = menu.addAction("Gerar resultado da imagem")
             generate_selected_action = menu.addAction("Gerar resultados selecionados")
             edit_mask_action = menu.addAction("Editar mascara")
-            recalc_metrics_action = menu.addAction("Recalcular metrica")
+            recalc_metrics_action = menu.addAction("Recalcular metricas selecionadas")
             menu.addSeparator()
             remove_action = menu.addAction("Excluir imagem")
         else:

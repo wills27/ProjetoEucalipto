@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtWidgets import QLabel
-from PyQt6.QtGui import QImage
+from PyQt6.QtGui import QImage, QPainter, QPen, QColor
 import io
 
 
@@ -79,8 +79,40 @@ class AnnotationPreviewLabel(QLabel):
         self.pan_start_position = None
         self.pan_start_h = 0
         self.pan_start_v = 0
+        self.overlay_points = None
         self.setMouseTracking(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        points = self.overlay_points
+        if not points:
+            return
+        scale = getattr(self, "_display_scale", 1.0)
+        offset_x = getattr(self, "_display_offset_x", 0)
+        offset_y = getattr(self, "_display_offset_y", 0)
+        widget_points = [QPointF(p[0] * scale + offset_x, p[1] * scale + offset_y) for p in points]
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        if len(widget_points) == 2:
+            line_pen = QPen(QColor(255, 214, 74))
+            line_pen.setWidthF(1.4)
+            line_pen.setCosmetic(True)
+            painter.setPen(line_pen)
+            painter.drawLine(widget_points[0], widget_points[1])
+
+        outline_pen = QPen(QColor(0, 46, 40))
+        outline_pen.setWidthF(1.3)
+        outline_pen.setCosmetic(True)
+        radius = 5.0
+        for widget_point in widget_points:
+            painter.setPen(outline_pen)
+            painter.setBrush(QColor(255, 214, 74))
+            painter.drawEllipse(widget_point, radius, radius)
+
+        painter.end()
 
     def mousePressEvent(self, event):
         if (

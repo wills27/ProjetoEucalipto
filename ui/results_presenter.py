@@ -38,13 +38,17 @@ class ResultsPresenterMixin:
             self.result_images_table.setItem(row_index, 3, metrics_item)
         self.result_images_table.blockSignals(False)
         if hasattr(self, "results_list_status"):
-            overlay_count = len(self.result_status_index.get("overlays", set()))
-            metrics_count = len(self.result_status_index.get("metrics", set()))
-            model_name = self.config.get("active_model") or "nenhum modelo"
-            self.results_list_status.setText(
-                f"{len(entries)} imagem(ns) para {model_name}. "
-                f"Overlays: {overlay_count} | Metricas: {metrics_count}."
-            )
+            from services.paths import is_default_image_set
+            if is_default_image_set(self.config):
+                self.results_list_status.setText("Selecione ou crie um conjunto de imagens na barra lateral.")
+            else:
+                overlay_count = len(self.result_status_index.get("overlays", set()))
+                metrics_count = len(self.result_status_index.get("metrics", set()))
+                model_name = self.config.get("active_model") or "nenhum modelo"
+                self.results_list_status.setText(
+                    f"{len(entries)} imagem(ns) para {model_name}. "
+                    f"Overlays: {overlay_count} | Metricas: {metrics_count}."
+                )
         if selected:
             row = self.result_table_row_for_stem(selected)
             if row >= 0:

@@ -6,9 +6,11 @@ from services.csv_files import load_semicolon_csv
 from services.dataset_manifest import manifest_image_path
 from services.metrics import read_metrics
 from services.paths import (
+    active_image_set_dir,
     cell_counts_csv_path,
     cell_measurements_csv_path,
     dataset_images_dir,
+    is_default_image_set,
     metrics_csv_path,
     model_outputs_dir,
     overlays_dir,
@@ -99,7 +101,22 @@ def result_conversion_input_images(config):
     )
 
 
+def image_set_entries(config):
+    entries = {}
+    images_dir = active_image_set_dir(config)
+    if images_dir.exists():
+        for ext in IMAGE_EXTENSIONS:
+            for path in sorted(images_dir.glob(f"*{ext}")):
+                if path.stem.endswith("_masks") or path.stem.endswith("_pred_mask") or path.stem.endswith("_pred_masks"):
+                    continue
+                entries.setdefault(path.stem, path)
+    return dict(sorted(entries.items()))
+
+
 def result_image_entries(config, dataset_plan):
+    if not is_default_image_set(config):
+        return image_set_entries(config)
+
     entries = {}
     plan_by_stem = {Path(image_name).stem: saved for image_name, saved in dataset_plan.items()}
     images_dir = dataset_images_dir(config)
@@ -168,7 +185,7 @@ def result_metrics_exists(config, stem, status_index=None, runtime_metrics_ready
     if metric_stems is not None:
         return stem in metric_stems
     for row in read_metrics(metrics_csv_path(config)):
-        if row.get("image") == stem:
+        if row.get("imagem", row.get("image")) == stem:
             return True
     for row in load_semicolon_csv(cell_counts_csv_path(config))[1:]:
         if row and row[0] == stem:
@@ -197,7 +214,7 @@ def build_result_status_index(config, entries=None, runtime_overlay_ready_stems=
     }
 
     metric_stems = set(runtime_metrics_ready_stems)
-    metric_stems.update(row.get("image", "") for row in read_metrics(metrics_csv_path(config)))
+    metric_stems.update(row.get("imagem", row.get("image", "")) for row in read_metrics(metrics_csv_path(config)))
     metric_stems.update(row[0] for row in load_semicolon_csv(cell_counts_csv_path(config))[1:] if row)
     metric_stems.update(row[0] for row in load_semicolon_csv(cell_measurements_csv_path(config))[1:] if row)
     metric_stems.discard("")

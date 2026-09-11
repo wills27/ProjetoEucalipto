@@ -63,9 +63,70 @@ def project_models_dir(config):
     return active_project_dir(config) / "models"
 
 
+DEFAULT_IMAGE_SET = "__default__"
+
+
+def shared_models_dir(config):
+    return projects_dir(config) / "shared_models"
+
+
+def image_sets_dir(config):
+    return active_project_dir(config) / "image_sets"
+
+
+def active_image_set_name(config):
+    return config.get("active_image_set") or DEFAULT_IMAGE_SET
+
+
+def is_default_image_set(config):
+    return active_image_set_name(config) == DEFAULT_IMAGE_SET
+
+
+def active_image_set_dir(config):
+    name = active_image_set_name(config)
+    if name == DEFAULT_IMAGE_SET:
+        return dataset_images_dir(config)
+    return image_sets_dir(config) / name / "images"
+
+
+def list_image_sets(config):
+    root = image_sets_dir(config)
+    names = [DEFAULT_IMAGE_SET]
+    if root.exists():
+        names += sorted(path.name for path in root.iterdir() if path.is_dir())
+    return names
+
+
+def image_set_metadata_path(config, name):
+    return image_sets_dir(config) / name / "metadata.json"
+
+
+def ensure_image_set_structure(config, name):
+    (image_sets_dir(config) / name / "images").mkdir(parents=True, exist_ok=True)
+
+
+def delete_image_set(config, name):
+    """Permanently removes a custom image set folder (images and its outputs) from disk."""
+    if not name or name == DEFAULT_IMAGE_SET or name not in list_image_sets(config):
+        raise ValueError(f"Conjunto de imagens desconhecido: {name!r}")
+    target = image_sets_dir(config) / name
+    if target.parent != image_sets_dir(config):
+        raise ValueError(f"Caminho de conjunto de imagens invalido: {target}")
+    shutil.rmtree(target)
+    outputs_root = active_project_dir(config) / "outputs"
+    if outputs_root.exists():
+        for model_dir in outputs_root.iterdir():
+            image_set_outputs = model_dir / "image_sets" / name
+            if image_set_outputs.exists():
+                shutil.rmtree(image_set_outputs, ignore_errors=True)
+
+
 def model_outputs_dir(config, model_name=None):
     model = Path(model_name or config.get("active_model") or "__no_model_selected__").name
-    return active_project_dir(config) / "outputs" / model
+    base = active_project_dir(config) / "outputs" / model
+    if is_default_image_set(config):
+        return base
+    return base / "image_sets" / active_image_set_name(config)
 
 
 def predictions_dir(config, model_name=None):
@@ -148,7 +209,10 @@ def active_model_path(config):
     model = Path(config["active_model"])
     if model.is_absolute():
         return model
-    return project_models_dir(config) / model
+    shared = shared_models_dir(config) / model.name
+    if shared.exists():
+        return shared
+    return project_models_dir(config) / model.name
 
 
 def metrics_csv_path(config, model_name=None):

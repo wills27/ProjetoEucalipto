@@ -1,14 +1,6 @@
 ﻿from pathlib import Path
 
-from PyQt6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QFormLayout,
-    QLineEdit,
-    QVBoxLayout,
-)
+from PyQt6.QtWidgets import QFileDialog
 
 from services.config import save_config
 from services.dataset_import import (
@@ -17,53 +9,27 @@ from services.dataset_import import (
     convert_seg_npy_masks_in_dir,
 )
 from services.paths import PROJECT_DIR, dataset_images_dir, dataset_masks_dir
+from ui.dialogs.import_images_dialog import ImportImagesDialog
 
 
 class DatasetImportPresenterMixin:
     def import_dataset_folder(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Importar imagens e mascaras")
-        dialog.setModal(True)
-        dialog.setMinimumWidth(360)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(14)
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(10)
-
-        recursive_check = QCheckBox("Incluir subpastas")
-        recursive_check.setChecked(bool(self.config.get("import_dataset_recursive", True)))
-
-        skip_keyword = QLineEdit(str(self.config.get("import_dataset_skip_keyword", "")))
-        skip_keyword.setPlaceholderText("mask, overlay, temp")
-
-        prefix_check = QCheckBox("Usar nome das pastas como prefixo")
-        prefix_check.setChecked(bool(self.config.get("import_dataset_prefix_folders", False)))
-
-        grayscale_check = QCheckBox("Converter imagens para cinza")
-        grayscale_check.setChecked(bool(self.config.get("import_dataset_grayscale", False)))
-
-        form.addRow("Ignorar contendo", skip_keyword)
-        form.addRow("", recursive_check)
-        form.addRow("", prefix_check)
-        form.addRow("", grayscale_check)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        dialog = ImportImagesDialog(
+            self,
+            allow_files=False,
+            show_prefix=True,
+            defaults={
+                "recursive": self.config.get("import_dataset_recursive", True),
+                "skip_keyword": self.config.get("import_dataset_skip_keyword", ""),
+                "prefix": self.config.get("import_dataset_prefix_folders", False),
+                "grayscale": self.config.get("import_dataset_grayscale", False),
+            },
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Continuar")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        dialog.setWindowTitle("Importar imagens e mascaras")
+        if dialog.exec() != ImportImagesDialog.DialogCode.Accepted:
             return
 
+        opts = dialog.result_options()
         source = QFileDialog.getExistingDirectory(self, "Escolher pasta com imagens e _seg.npy", str(PROJECT_DIR))
         if not source:
             return
@@ -77,16 +43,16 @@ class DatasetImportPresenterMixin:
             source_dir,
             target_dir,
             mask_target_dir,
-            convert_to_grayscale=grayscale_check.isChecked(),
-            recursive=recursive_check.isChecked(),
-            keyword=skip_keyword.text().strip().lower(),
-            use_folder_prefix=prefix_check.isChecked(),
+            convert_to_grayscale=opts["grayscale"],
+            recursive=opts["recursive"],
+            keyword=opts["keyword"],
+            use_folder_prefix=opts["prefix"],
             progress_callback=self.update_task_progress,
         )
-        self.config["import_dataset_recursive"] = recursive_check.isChecked()
-        self.config["import_dataset_skip_keyword"] = skip_keyword.text().strip().lower()
-        self.config["import_dataset_prefix_folders"] = prefix_check.isChecked()
-        self.config["import_dataset_grayscale"] = grayscale_check.isChecked()
+        self.config["import_dataset_recursive"] = opts["recursive"]
+        self.config["import_dataset_skip_keyword"] = opts["keyword"]
+        self.config["import_dataset_prefix_folders"] = opts["prefix"]
+        self.config["import_dataset_grayscale"] = opts["grayscale"]
         save_config(self.config)
 
         self.start_task_progress("Converter imagens", detail="Convertendo imagens para TIFF...")
@@ -105,10 +71,10 @@ class DatasetImportPresenterMixin:
             f"Copiados: {result['copied']}\n"
             f"Convertidos para TIFF: {result['converted']}\n"
             f"Mascaras convertidas de _seg.npy: {result.get('masks_converted', 0)}\n"
-            f"Recursiva: {'sim' if recursive_check.isChecked() else 'nao'}\n"
-            f"Filtro: {skip_keyword.text().strip().lower() or '-'}\n"
-            f"Prefixo de pastas: {'sim' if prefix_check.isChecked() else 'nao'}\n"
-            f"Cinza: {'sim' if grayscale_check.isChecked() else 'nao'}\n"
+            f"Recursiva: {'sim' if opts['recursive'] else 'nao'}\n"
+            f"Filtro: {opts['keyword'] or '-'}\n"
+            f"Prefixo de pastas: {'sim' if opts['prefix'] else 'nao'}\n"
+            f"Cinza: {'sim' if opts['grayscale'] else 'nao'}\n"
             f"Pulados por ja existirem: {result['skipped']}\n"
         )
         self.finish_task_progress(

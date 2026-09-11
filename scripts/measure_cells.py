@@ -84,7 +84,7 @@ def main():
         all_measurements.extend(measurements)
         all_summaries.append(summary)
         print(f"MEASUREMENTS {filename}", flush=True)
-        print(f"{filename}: {summary['cell_count']} vasos no total, {summary['freq_vaso_50pct']} objetos 50pct+", flush=True)
+        print(f"{filename}: {summary['quantidade_celulas']} vasos no total, {summary['freq_vaso_50pct']} objetos 50pct+", flush=True)
         print(f"PROGRESS {index} {total} Medidas: {filename}", flush=True)
 
     if not all_summaries:
@@ -97,7 +97,7 @@ def main():
                 existing_measurements = [
                     row
                     for row in csv.DictReader(file, delimiter=";")
-                    if row.get("filename") not in selected_stems
+                    if row.get("imagem") not in selected_stems
                 ]
             all_measurements = existing_measurements + all_measurements
 
@@ -107,7 +107,7 @@ def main():
                 existing_summaries = [
                     row
                     for row in csv.DictReader(file, delimiter=";")
-                    if row.get("filename") not in selected_stems
+                    if row.get("imagem") not in selected_stems
                 ]
             all_summaries = existing_summaries + all_summaries
 

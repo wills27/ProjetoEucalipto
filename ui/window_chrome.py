@@ -18,6 +18,7 @@ class WindowChromeMixin:
 
         model_menu = menu_bar.addMenu("Modelo")
         self.add_menu_action(model_menu, "Importar modelo", self.import_prediction_model)
+        self.add_menu_action(model_menu, "Promover modelo para compartilhados", self.promote_active_model)
         model_menu.addSeparator()
         self.add_menu_action(model_menu, "Treinar modelo", self.open_training_page)
         self.add_menu_action(model_menu, "Compactar mascaras", self.run_mask_compaction)

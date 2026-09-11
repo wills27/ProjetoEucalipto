@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from PIL import ImageDraw
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -20,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.config import save_config
-from services.paths import PROJECT_DIR, active_project_dir
+from services.paths import PROJECT_DIR
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
 
@@ -65,11 +64,11 @@ class CalibrationDialog(QDialog):
         self.preview_label.pan_scroll_area = self.scroll_area
         preview_layout.addWidget(self.scroll_area, 1)
         preview_actions = QHBoxLayout()
-        window.add_button(preview_actions, "Imagem do projeto", self.open_project_image)
-        window.add_button(preview_actions, "Imagem externa", self.open_external_image)
-        window.add_button(preview_actions, "Ajustar zoom", self.reset_zoom)
-        window.add_button(preview_actions, "Limpar pontos", self.clear_points)
+        window.add_button(preview_actions, "Importar Imagem", self.open_external_image)
         preview_actions.addStretch()
+        self.zoom_percent_label = QLabel("100%")
+        self.zoom_percent_label.setObjectName("hint")
+        preview_actions.addWidget(self.zoom_percent_label)
         preview_layout.addLayout(preview_actions)
         layout.addWidget(preview_box, 1)
 
@@ -142,24 +141,19 @@ class CalibrationDialog(QDialog):
             value = 0.0
         return "" if value <= 0 else f"{value:.6g}"
 
-    def open_project_image(self):
-        file_name, _filter = QFileDialog.getOpenFileName(
-            self,
-            "Escolher imagem do projeto",
-            str(active_project_dir(self.window.config)),
-            "Imagens (*.tif *.tiff *.png *.jpg *.jpeg)",
-        )
-        if file_name:
-            self.load_image(Path(file_name), "project_image")
-
     def open_external_image(self):
+        start_dir = self.window.config.get("calibration_last_image_dir") or str(PROJECT_DIR)
+        if not Path(start_dir).exists():
+            start_dir = str(PROJECT_DIR)
         file_name, _filter = QFileDialog.getOpenFileName(
             self,
             "Escolher imagem para calibracao",
-            str(PROJECT_DIR),
+            start_dir,
             "Imagens (*.tif *.tiff *.png *.jpg *.jpeg)",
         )
         if file_name:
+            self.window.config["calibration_last_image_dir"] = str(Path(file_name).parent)
+            save_config(self.window.config)
             self.load_image(Path(file_name), "external_image")
 
     def load_image(self, path, source):
@@ -169,8 +163,9 @@ class CalibrationDialog(QDialog):
         self.drag_start = None
         self.active_point_index = None
         self.placing_second_point = False
-        self.reset_zoom()
+        self.zoom = 1.0
         self.image = self.window.load_image_as_rgb(path)
+        self.set_preview_image(self.image)
         self.update_preview()
 
     def start_drag(self, source_label, x, y):
@@ -288,15 +283,10 @@ class CalibrationDialog(QDialog):
             self.preview_label.setPixmap(QPixmap())
             self.current_preview_image = None
             self.current_preview_pixmap = None
+            self.preview_label.overlay_points = None
             return
-        image = self.image.copy()
-        draw = ImageDraw.Draw(image)
-        for point in self.points:
-            x, y = round(point[0]), round(point[1])
-            draw.rectangle((x, y, x, y), fill=(255, 214, 74), outline=(0, 46, 40))
-        if len(self.points) == 2:
-            draw.line(self.points, fill=(255, 214, 74), width=3)
-        self.set_preview_image(image)
+        self.preview_label.overlay_points = list(self.points)
+        self.preview_label.update()
 
     def clear_points(self):
         self.points = []
@@ -371,10 +361,6 @@ class CalibrationDialog(QDialog):
         self.load_current_calibration()
         self.current_label.setText(self.window.calibration_text())
 
-    def reset_zoom(self):
-        self.zoom = 1.0
-        self.set_preview_pixmap()
-
     def zoom_preview(self, delta, source_label=None, x=None, y=None):
         if self.current_preview_image is None:
             return
@@ -387,7 +373,7 @@ class CalibrationDialog(QDialog):
             viewport_y = y - self.scroll_area.verticalScrollBar().value()
 
         factor = 1.15 if delta > 0 else 1 / 1.15
-        self.zoom = max(0.2, min(30.0, self.zoom * factor))
+        self.zoom = max(0.2, min(150.0, self.zoom * factor))
         self.set_preview_pixmap()
 
         if point is not None and viewport_x is not None and viewport_y is not None:
@@ -410,6 +396,8 @@ class CalibrationDialog(QDialog):
         viewport_size = self.scroll_area.viewport().size()
         fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
         scale = max(0.05, fit_scale * self.zoom)
+        max_dimension = 13000
+        scale = min(scale, max_dimension / max(width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
         pixmap = self.current_preview_pixmap.scaled(
@@ -424,6 +412,8 @@ class CalibrationDialog(QDialog):
         self.preview_label._display_offset_x = 0
         self.preview_label._display_offset_y = 0
         self.preview_label.setPixmap(pixmap)
+        if hasattr(self, "zoom_percent_label"):
+            self.zoom_percent_label.setText(f"{self.preview_label._display_scale * 100:.0f}%")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

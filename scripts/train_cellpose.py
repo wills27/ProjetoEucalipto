@@ -326,6 +326,17 @@ def main():
         )
 
     log("ETAPA: treinamento finalizado")
+
+    loss_history_path = models_dir / f"{args.model_name}_loss_history.csv"
+    train_losses_arr = np.asarray(train_losses, dtype=float)
+    val_losses_arr = np.asarray(val_losses, dtype=float)
+    with loss_history_path.open("w", encoding="utf-8") as history_file:
+        history_file.write("epoch,train_loss,val_loss\n")
+        for epoch in range(len(train_losses_arr)):
+            val_loss = val_losses_arr[epoch] if epoch < len(val_losses_arr) else ""
+            history_file.write(f"{epoch},{train_losses_arr[epoch]},{val_loss}\n")
+    log(f"Historico de loss salvo em: {loss_history_path}")
+
     model_path = canonicalize_model_path(model_path, models_dir, args.model_name)
     log(f"Modelo salvo em: {model_path}")
     if training_flows_dir.exists():

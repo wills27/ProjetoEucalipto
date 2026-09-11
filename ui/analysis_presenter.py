@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QTableWidgetItem
 
 from services.csv_files import load_semicolon_csv as read_semicolon_csv
 from services.image_arrays import normalize_array
-from services.metrics import read_metrics
+from services.metrics import parse_decimal, read_metrics
 from services.overlay_rendering import (
     build_label_index,
     overlay_colored_mask_on_image as render_colored_mask_overlay,
@@ -22,7 +22,7 @@ from services.paths import cell_counts_csv_path, cell_measurements_csv_path, met
 class AnalysisPresenterMixin:
     def refresh_analysis_metrics(self):
         self.metrics_by_image = {
-            row["image"]: row for row in read_metrics(metrics_csv_path(self.config))
+            row.get("imagem", row.get("image")): row for row in read_metrics(metrics_csv_path(self.config))
         }
         stem = self.current_result_image_stem() if hasattr(self, "result_images_table") else None
         self.update_metric_panel(stem)
@@ -86,18 +86,19 @@ class AnalysisPresenterMixin:
         return any(unit_col < len(row) and row[unit_col].strip() for row in body)
 
     def _csv_visible_columns(self, headers, has_calibration):
-        px_cols = {
-            "area_px", "perimeter_px", "diametro_elipse_menor_px",
-            "media_area_px", "media_diametro_px",
+        always_hidden = {
+            "area_px", "perimetro_px", "diametro_elipse_menor_px",
+            "media_area_px", "media_diametro_px", "pixels_pintados",
+            "perimetro_calibrado",
         }
-        cal_cols = {
-            "area_calibrada", "perimeter_calibrado", "diametro_elipse_menor_calibrado",
+        cal_only = {
+            "area_calibrada", "diametro_elipse_menor_calibrado",
             "media_area_calibrada", "media_diametro_calibrado", "unidade",
         }
         return [
             i for i, h in enumerate(headers)
-            if not (has_calibration and h in px_cols)
-            and not (not has_calibration and h in cal_cols)
+            if h not in always_hidden
+            and not (not has_calibration and h in cal_only)
         ]
 
     def show_analysis_image(self, image_stem):
@@ -318,12 +319,12 @@ class AnalysisPresenterMixin:
         if row:
             values.update(
                 {
-                    "Dice": f"{float(row['dice']):.4f}",
-                    "IoU": f"{float(row['iou']):.4f}",
-                    "Precision": f"{float(row['precision']):.4f}",
-                    "Recall": f"{float(row['recall']):.4f}",
-                    "GT objects": row["gt_objects"],
-                    "Pred objects": row["pred_objects"],
+                    "Dice": f"{parse_decimal(row['dice']):.4f}",
+                    "IoU": f"{parse_decimal(row['iou']):.4f}",
+                    "Precision": f"{parse_decimal(row.get('precisao', row.get('precision'))):.4f}",
+                    "Recall": f"{parse_decimal(row.get('revocacao', row.get('recall'))):.4f}",
+                    "GT objects": row.get("objetos_reais", row.get("gt_objects")),
+                    "Pred objects": row.get("objetos_preditos", row.get("pred_objects")),
                 }
             )
         for key, value in values.items():

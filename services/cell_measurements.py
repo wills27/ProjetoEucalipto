@@ -7,22 +7,20 @@ from skimage.measure import regionprops
 
 
 MEASUREMENT_COLUMNS = [
-    "filename",
-    "cell_id",
+    "imagem",
+    "id_celula",
     "area_px",
-    "perimeter_px",
     "diametro_elipse_menor_px",
     "area_calibrada",
-    "perimeter_calibrado",
     "diametro_elipse_menor_calibrado",
     "unidade",
 ]
 
 SUMMARY_COLUMNS = [
-    "filename",
-    "cell_count",
-    "painted_pixels",
-    "painted_ratio_pct",
+    "imagem",
+    "quantidade_celulas",
+    "pixels_pintados",
+    "percentual_area_pintada",
     "freq_vaso_50pct",
     "media_area_px",
     "media_diametro_px",
@@ -184,22 +182,18 @@ def build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit="", 
     has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
     for i, p in enumerate(props_inteiros, start=1):
-        perimeter = getattr(p, "perimeter", None)
         ellipse = ellipse_by_label.get(p.label)
         area_px = float(p.area)
-        perimeter_px = float(perimeter) if perimeter is not None else None
         diameter_px = float(ellipse.minor_axis_length) if ellipse else None
 
         rows.append(
             {
-                "filename": filename,
-                "cell_id": i,
-                "area_px": round(area_px, 3),
-                "perimeter_px": round(perimeter_px, 3) if perimeter_px is not None else None,
-                "diametro_elipse_menor_px": round(diameter_px, 3) if diameter_px is not None else None,
-                "area_calibrada": round(area_px * (unit_per_pixel ** 2), 3) if has_calibration else None,
-                "perimeter_calibrado": round(perimeter_px * unit_per_pixel, 3) if has_calibration and perimeter_px is not None else None,
-                "diametro_elipse_menor_calibrado": round(diameter_px * unit_per_pixel, 3) if has_calibration and diameter_px is not None else None,
+                "imagem": filename,
+                "id_celula": i,
+                "area_px": round(area_px, 2),
+                "diametro_elipse_menor_px": round(diameter_px, 2) if diameter_px is not None else None,
+                "area_calibrada": round(area_px * (unit_per_pixel ** 2), 2) if has_calibration else None,
+                "diametro_elipse_menor_calibrado": round(diameter_px * unit_per_pixel, 2) if has_calibration and diameter_px is not None else None,
                 "unidade": unit if has_calibration else "",
             }
         )
@@ -231,15 +225,15 @@ def build_summary_row(
     has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
     return {
-        "filename": filename,
-        "cell_count": total_vasos_count,
-        "painted_pixels": int(area_total_vasos),
-        "painted_ratio_pct": float(round(fracao_area_vasos * 100, 3)),
+        "imagem": filename,
+        "quantidade_celulas": total_vasos_count,
+        "pixels_pintados": int(area_total_vasos),
+        "percentual_area_pintada": float(round(fracao_area_vasos * 100, 2)),
         "freq_vaso_50pct": freq_vaso_50pct,
-        "media_area_px": float(media_area),
-        "media_diametro_px": float(media_diametro),
-        "media_area_calibrada": float(media_area * (unit_per_pixel ** 2)) if has_calibration else None,
-        "media_diametro_calibrado": float(media_diametro * unit_per_pixel) if has_calibration else None,
+        "media_area_px": round(float(media_area), 2),
+        "media_diametro_px": round(float(media_diametro), 2),
+        "media_area_calibrada": round(float(media_area * (unit_per_pixel ** 2)), 2) if has_calibration else None,
+        "media_diametro_calibrado": round(float(media_diametro * unit_per_pixel), 2) if has_calibration else None,
         "unidade": unit if has_calibration else "",
     }
 
@@ -282,14 +276,14 @@ def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixe
 
 
 def save_csv_measurements(output_dir, rows):
-    df = pd.DataFrame(rows, columns=MEASUREMENT_COLUMNS).round(3)
+    df = pd.DataFrame(rows, columns=MEASUREMENT_COLUMNS).round(2)
     path = os.path.join(output_dir, "cell_measurements.csv")
     df.to_csv(path, index=False, sep=";", decimal=",")
     return path
 
 
 def save_csv_summary(output_dir, rows):
-    df = pd.DataFrame(rows, columns=SUMMARY_COLUMNS).round(3)
+    df = pd.DataFrame(rows, columns=SUMMARY_COLUMNS).round(2)
     path = os.path.join(output_dir, "cell_counts.csv")
     df.to_csv(path, index=False, sep=";", decimal=",")
     return path

@@ -181,7 +181,7 @@ class AnnotationPage(QWidget):
         save_mask_button.clicked.connect(self.save_mask)
         self.busy_controls.append(save_mask_button)
         tools_layout.addWidget(save_mask_button, 0, 0, 1, 2)
-        clear_mask_button = QPushButton("Limpar mascara")
+        clear_mask_button = QPushButton("Apagar tudo")
         clear_mask_button.clicked.connect(self.clear_mask)
         undo_mask_button = QPushButton("Desfazer")
         undo_mask_button.clicked.connect(self.undo_mask)
