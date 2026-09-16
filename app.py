@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from controllers.process_runner import ScriptProcessRunner
 from services.config import load_config
+from ui.styles import APP_STYLE
 from ui.annotation_workflow import AnnotationWorkflowMixin
 from ui.dataset_import_presenter import DatasetImportPresenterMixin
 from ui.analysis_presenter import AnalysisPresenterMixin
@@ -113,6 +114,7 @@ def main():
         return
 
     app = QApplication(sys.argv)
+    app.setStyleSheet(APP_STYLE)
     window = None
 
     def handle_exception(exc_type, exc_value, exc_traceback):

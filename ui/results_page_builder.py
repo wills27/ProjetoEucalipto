@@ -5,13 +5,9 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QProgressBar,
-    QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
     QHeaderView,
     QSizePolicy,
 )
@@ -65,32 +61,13 @@ class ResultsPageBuilderMixin:
         diameter_layout.addStretch()
         params_layout.addWidget(diameter_row)
 
-        self.advanced_prediction_button = QToolButton()
-        self.advanced_prediction_button.setText("Avancados")
-        self.advanced_prediction_button.setArrowType(Qt.ArrowType.DownArrow)
-        self.advanced_prediction_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.advanced_prediction_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-
-        advanced_menu = QMenu(self.advanced_prediction_button)
-        advanced_widget = QWidget()
-        advanced_params_layout = QGridLayout(advanced_widget)
-        advanced_params_layout.setContentsMargins(10, 8, 10, 8)
-        advanced_params_layout.setHorizontalSpacing(8)
-        advanced_params_layout.setVerticalSpacing(6)
-        for row, (label, field) in enumerate(
+        self.advanced_prediction_button = self.advanced_params_button(
             [
                 ("Padding", self.pred_padding),
                 ("Cell prob", self.pred_cellprob),
                 ("Flow", self.pred_flow),
             ]
-        ):
-            advanced_params_layout.addWidget(QLabel(label), row, 0)
-            advanced_params_layout.addWidget(field, row, 1)
-        advanced_params_layout.setColumnStretch(1, 1)
-        advanced_action = QWidgetAction(advanced_menu)
-        advanced_action.setDefaultWidget(advanced_widget)
-        advanced_menu.addAction(advanced_action)
-        self.advanced_prediction_button.setMenu(advanced_menu)
+        )
         params_layout.addWidget(self.advanced_prediction_button)
 
         model_layout.addWidget(QLabel("Modelo"), 0, 0)
@@ -167,11 +144,10 @@ class ResultsPageBuilderMixin:
             ("Freq. 100%", "overlay_inteiros"),
             ("Diametro", "overlay_diametro"),
         ]:
-            button = QPushButton(label)
-            button.setObjectName("mode")
-            button.clicked.connect(lambda checked=False, selected=mode: self.set_view_mode(selected))
+            button = self.add_mode_button(
+                mode_layout, label, lambda checked=False, selected=mode: self.set_view_mode(selected)
+            )
             self.view_buttons[mode] = button
-            mode_layout.addWidget(button)
         mode_layout.addStretch()
         center_layout.addLayout(mode_layout)
         self.preview_label = AnnotationPreviewLabel(

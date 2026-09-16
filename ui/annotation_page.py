@@ -33,6 +33,7 @@ from services.annotation import (
 )
 from ui.mask_edit_target import DatasetMaskTarget
 from services.paths import conversion_excluded_dir, dataset_images_dir, dataset_masks_dir
+from ui import components
 from ui.annotation_editor import AnnotationEditorDialog
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
@@ -116,12 +117,13 @@ class AnnotationPage(QWidget):
         center_layout = QVBoxLayout(center)
         mode_layout = QHBoxLayout()
         for label, mode in [("Original", "original"), ("Overlay", "overlay")]:
-            button = QPushButton(label)
-            button.setObjectName("mode")
-            button.setProperty("active", mode == "overlay")
-            button.clicked.connect(lambda checked=False, selected=mode: self.set_view_mode(selected))
+            button = self.window.add_mode_button(
+                mode_layout,
+                label,
+                lambda checked=False, selected=mode: self.set_view_mode(selected),
+                active=mode == "overlay",
+            )
             self.view_buttons[mode] = button
-            mode_layout.addWidget(button)
         mode_layout.addStretch()
         center_layout.addLayout(mode_layout)
         self.preview_label = AnnotationPreviewLabel(
@@ -166,15 +168,12 @@ class AnnotationPage(QWidget):
 
         tools_box = self.window.panel("Edicao manual")
         tools_layout = QGridLayout(tools_box)
-        self.contour_button = QPushButton("Contorno")
-        self.contour_button.setObjectName("mode")
-        self.contour_button.setProperty("active", True)
+        self.contour_button = components.make_mode_button(
+            "Contorno", lambda: self.set_tool("contour"), active=True
+        )
         self.contour_button.setVisible(False)
-        self.contour_button.clicked.connect(lambda: self.set_tool("contour"))
-        self.eraser_button = QPushButton("Borracha")
-        self.eraser_button.setObjectName("mode")
+        self.eraser_button = components.make_mode_button("Borracha", lambda: self.set_tool("eraser"))
         self.eraser_button.setVisible(False)
-        self.eraser_button.clicked.connect(lambda: self.set_tool("eraser"))
 
         save_mask_button = QPushButton("Salvar mascara")
         save_mask_button.setObjectName("primary")

@@ -24,6 +24,7 @@ from services.paths import (
     relative_to_project,
     shared_models_dir,
 )
+from ui import palette
 
 
 class ModelPresenterMixin:
@@ -60,7 +61,7 @@ class ModelPresenterMixin:
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if is_active:
-                    item.setBackground(QColor("#dff0d8"))
+                    item.setBackground(QColor(palette.SURFACE_ALT))
                 if col in (3, 4):
                     item.setTextAlignment(0x84)  # AlignCenter
                 self.project_models_table.setItem(row, col, item)

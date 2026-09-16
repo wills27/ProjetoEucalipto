@@ -2,6 +2,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
+from ui import palette
+
 
 class LossPlotWidget(QWidget):
     def __init__(self, total_epochs=100, parent=None):
@@ -60,7 +62,7 @@ class LossPlotWidget(QWidget):
             transform=self.axes.transAxes,
             ha="center",
             va="center",
-            color="#69736d",
+            color=palette.TEXT_SECONDARY,
         )
         self.canvas.draw_idle()
 
@@ -74,7 +76,7 @@ class LossPlotWidget(QWidget):
         ]
         if train_points:
             epochs, losses = zip(*train_points)
-            self.axes.plot(epochs, losses, color="#1f77b4", marker="o", markersize=5, linewidth=1)
+            self.axes.plot(epochs, losses, color=palette.PRIMARY_ACTIVE, marker="o", markersize=5, linewidth=1)
             upper = max(1.0, max(losses) * 1.15)
             self.axes.set_ylim(0, upper)
         self.canvas.draw_idle()
@@ -95,7 +97,7 @@ class LossPlotWidget(QWidget):
         axes.set_ylabel("Loss (1.a)")
         if train_points:
             epochs, losses = zip(*train_points)
-            axes.plot(epochs, losses, color="#1f77b4", marker="o", markersize=5, linewidth=1, label="Loss (1.a)")
+            axes.plot(epochs, losses, color=palette.PRIMARY_ACTIVE, marker="o", markersize=5, linewidth=1, label="Loss (1.a)")
             axes.set_xlim(0, max(1, self.total_epochs))
             axes.set_ylim(0, max(1.0, max(losses) * 1.15))
             axes.legend(loc="best")

@@ -12,7 +12,7 @@ from services.config import save_config, with_derived_paths
 from services.dataset_manifest import update_plan_entry_group
 from services.paths import (
     PROJECT_DIR,
-    dataset_images_dir,
+    active_image_set_dir,
     project_models_dir,
     relative_to_project,
     shared_models_dir,
@@ -182,7 +182,7 @@ class PredictionImportPresenterMixin:
         convert_to_grayscale=None,
         recursive=True,
     ):
-        target_dir = dataset_images_dir(self.config)
+        target_dir = active_image_set_dir(self.config)
         target_dir.mkdir(parents=True, exist_ok=True)
         keyword = str(keyword or "").strip().lower()
         if convert_to_grayscale is None:

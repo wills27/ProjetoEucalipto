@@ -14,6 +14,7 @@ from services.dataset_service import (
     dataset_selection_summary_text,
     remove_dataset_plan_entries as remove_dataset_entries_from_plan,
 )
+from ui import palette
 from workers.dataset_scan_worker import DatasetScanWorker
 
 
@@ -254,11 +255,11 @@ class DatasetPresenterMixin:
 
     def apply_dataset_status_style(self, item, status):
         if status == "Com mascara":
-            item.setForeground(QColor("#16803a"))
+            item.setForeground(QColor(palette.SUCCESS))
         elif status == "Sem mascara":
-            item.setForeground(QColor("#b42318"))
+            item.setForeground(QColor(palette.ERROR))
         else:
-            item.setForeground(QColor("#1f2933"))
+            item.setForeground(QColor(palette.TEXT))
 
     def load_dataset_plan(self):
         return load_plan(dataset_plan_path(self.config))

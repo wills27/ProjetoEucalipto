@@ -3,24 +3,20 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QFrame,
-    QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMenu,
     QProgressBar,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
+from ui import components
 from ui.annotation_page import AnnotationPage
 from ui.tables.dataset_pairs_table import DatasetPairsTable
 from ui.widgets import AnnotationPreviewLabel
@@ -45,6 +41,7 @@ class UiBuilderMixin:
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
         sidebar_layout.setSpacing(6)
+        components.apply_elevation(sidebar)
         body.addWidget(sidebar, 0)
 
         image_set_label = QLabel("Conjunto de imagens")
@@ -216,31 +213,13 @@ class UiBuilderMixin:
         for field in [self.dataset_prediction_padding, self.dataset_prediction_cellprob, self.dataset_prediction_flow]:
             field.setMinimumWidth(64)
 
-        self.dataset_advanced_button = QToolButton()
-        self.dataset_advanced_button.setText("Avancados")
-        self.dataset_advanced_button.setArrowType(Qt.ArrowType.DownArrow)
-        self.dataset_advanced_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.dataset_advanced_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        advanced_menu = QMenu(self.dataset_advanced_button)
-        advanced_widget = QWidget()
-        advanced_params_layout = QGridLayout(advanced_widget)
-        advanced_params_layout.setContentsMargins(10, 8, 10, 8)
-        advanced_params_layout.setHorizontalSpacing(8)
-        advanced_params_layout.setVerticalSpacing(6)
-        for row, (label, field) in enumerate(
+        self.dataset_advanced_button = self.advanced_params_button(
             [
                 ("Padding", self.dataset_prediction_padding),
                 ("Cell prob", self.dataset_prediction_cellprob),
                 ("Flow", self.dataset_prediction_flow),
             ]
-        ):
-            advanced_params_layout.addWidget(QLabel(label), row, 0)
-            advanced_params_layout.addWidget(field, row, 1)
-        advanced_params_layout.setColumnStretch(1, 1)
-        advanced_action = QWidgetAction(advanced_menu)
-        advanced_action.setDefaultWidget(advanced_widget)
-        advanced_menu.addAction(advanced_action)
-        self.dataset_advanced_button.setMenu(advanced_menu)
+        )
         prediction_params.addWidget(self.dataset_advanced_button)
         prediction_params.addStretch()
         preview_actions = QHBoxLayout()
@@ -291,9 +270,7 @@ class UiBuilderMixin:
         self.apply_dataset_filter()
 
     def panel(self, title):
-        box = QGroupBox(title)
-        box.setObjectName("panel")
-        return box
+        return components.make_panel(title)
 
     def metric_card(self, label):
         frame = QFrame()
@@ -317,6 +294,7 @@ class UiBuilderMixin:
         layout.addWidget(title)
         layout.addWidget(divider)
         layout.addWidget(value, 1)
+        components.apply_elevation(frame)
         return frame, value
 
     def path_field(self, line_edit):
@@ -325,6 +303,7 @@ class UiBuilderMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(line_edit, 1)
         button = QPushButton("Escolher")
+        button.setAutoDefault(False)
         button.clicked.connect(lambda: self.choose_folder(line_edit))
         layout.addWidget(button)
         return widget
@@ -333,7 +312,20 @@ class UiBuilderMixin:
         button = QPushButton(text)
         if primary:
             button.setObjectName("primary")
+        # Nenhum dialogo do app depende de Enter para confirmar; deixar o Qt
+        # escolher um botao implicito como "default" so faz ele herdar a cor
+        # de destaque nativa do Windows em vez da paleta (visivel sobretudo
+        # dentro de QGroupBox), entao todo botao criado aqui abre mao disso.
+        button.setAutoDefault(False)
         button.clicked.connect(callback)
         layout.addWidget(button)
         return button
+
+    def add_mode_button(self, layout, text, callback, active=False):
+        button = components.make_mode_button(text, callback, active=active)
+        layout.addWidget(button)
+        return button
+
+    def advanced_params_button(self, fields):
+        return components.make_advanced_params_button(fields)
 

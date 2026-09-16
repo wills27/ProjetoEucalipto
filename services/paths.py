@@ -23,11 +23,14 @@ CONFIG_PATH = app_config_dir() / "app_config.json"
 
 
 def candidate_projects_dirs():
-    return [
-        Path.home() / "OneDrive" / "Documents" / "CellposeProjects",
-        Path.home() / "Documents" / "CellposeProjects",
-        Path.home() / "CellposeProjects",
-    ]
+    documents_names = ["Documents", "Documentos"]
+    candidates = []
+    for documents_name in documents_names:
+        candidates.append(Path.home() / "OneDrive" / documents_name / "CellposeProjects")
+    for documents_name in documents_names:
+        candidates.append(Path.home() / documents_name / "CellposeProjects")
+    candidates.append(Path.home() / "CellposeProjects")
+    return candidates
 
 
 def default_projects_dir():
@@ -175,7 +178,10 @@ def ensure_project_structure(project_dir):
 def list_projects(config):
     root = projects_dir(config)
     root.mkdir(parents=True, exist_ok=True)
-    return sorted(path.name for path in root.iterdir() if path.is_dir())
+    return sorted(
+        path.name for path in root.iterdir()
+        if path.is_dir() and path.name != "shared_models"
+    )
 
 
 def delete_project(config, project_name):

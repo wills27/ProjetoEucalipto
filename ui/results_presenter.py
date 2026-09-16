@@ -2,6 +2,8 @@
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QApplication, QTableWidgetItem
 
+from ui import palette
+
 
 class ResultsPresenterMixin:
     def refresh_analysis_images(self):
@@ -73,7 +75,7 @@ class ResultsPresenterMixin:
 
     def result_status_item(self, exists):
         item = QTableWidgetItem("âœ“" if exists else "âœ–")
-        item.setForeground(QColor("#00b341" if exists else "#e00000"))
+        item.setForeground(QColor(palette.SUCCESS if exists else palette.ERROR))
         item.setText("OK" if exists else "X")
         font = item.font()
         font.setBold(True)

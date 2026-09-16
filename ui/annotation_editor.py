@@ -3,7 +3,6 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,6 +13,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from ui import components
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
 MAX_TARGET_DIMENSION = 13000
@@ -52,7 +52,7 @@ class AnnotationEditorDialog(QDialog):
         layout = QHBoxLayout(self)
         layout.setSpacing(12)
 
-        preview_box = self._panel("Mascara")
+        preview_box = components.make_panel("Mascara")
         preview_layout = QVBoxLayout(preview_box)
         self.preview_label = AnnotationPreviewLabel(
             draw_callbacks["start"],
@@ -82,33 +82,26 @@ class AnnotationEditorDialog(QDialog):
         preview_layout.addWidget(self.scroll_area, 1)
         layout.addWidget(preview_box, 1)
 
-        tools_box = self._panel("Ferramentas")
+        tools_box = components.make_panel("Ferramentas")
         tools_layout = QVBoxLayout(tools_box)
 
         view_row = QHBoxLayout()
-        original_button = QPushButton("Original")
-        original_button.setObjectName("mode")
-        overlay_button = QPushButton("Overlay")
-        overlay_button.setObjectName("mode")
+        original_button = components.make_mode_button("Original", lambda: self.set_view_mode("original"))
+        overlay_button = components.make_mode_button("Overlay", lambda: self.set_view_mode("overlay"))
         self.view_buttons = {
             "original": original_button,
             "overlay": overlay_button,
         }
-        original_button.clicked.connect(lambda: self.set_view_mode("original"))
-        overlay_button.clicked.connect(lambda: self.set_view_mode("overlay"))
         self.update_view_buttons()
         self.busy_controls.extend([original_button, overlay_button])
         view_row.addWidget(original_button)
         view_row.addWidget(overlay_button)
         tools_layout.addLayout(view_row)
 
-        contour_button = QPushButton("Contorno")
-        eraser_button = QPushButton("Borracha")
+        contour_button = components.make_mode_button("Contorno", lambda: tool_callback("contour"))
+        eraser_button = components.make_mode_button("Borracha", lambda: tool_callback("eraser"))
         for button in [contour_button, eraser_button]:
-            button.setObjectName("mode")
             button.setVisible(False)
-        contour_button.clicked.connect(lambda: tool_callback("contour"))
-        eraser_button.clicked.connect(lambda: tool_callback("eraser"))
         modal_brush_size = QSpinBox()
         modal_brush_size.setRange(1, 200)
         modal_brush_size.setValue(brush_size)
@@ -117,15 +110,20 @@ class AnnotationEditorDialog(QDialog):
         tool_callback("contour")
 
         predict_button = QPushButton("Gerar mascara automatica")
+        predict_button.setAutoDefault(False)
         predict_button.clicked.connect(prediction_callback)
         save_button = QPushButton("Salvar mascara")
         save_button.setObjectName("primary")
+        save_button.setAutoDefault(False)
         save_button.clicked.connect(save_callback)
         clear_button = QPushButton("Apagar tudo")
+        clear_button.setAutoDefault(False)
         clear_button.clicked.connect(clear_callback)
         undo_button = QPushButton("Desfazer")
+        undo_button.setAutoDefault(False)
         undo_button.clicked.connect(undo_callback)
         close_button = QPushButton("Fechar")
+        close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
         self.busy_progress = QProgressBar()
         self.busy_progress.setRange(0, 0)
@@ -272,7 +270,3 @@ class AnnotationEditorDialog(QDialog):
         scale = max(0.05, fit_scale * self.zoom)
         return min(scale, MAX_TARGET_DIMENSION / max(width, height))
 
-    def _panel(self, title):
-        box = QGroupBox(title)
-        box.setObjectName("panel")
-        return box
