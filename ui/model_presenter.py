@@ -113,9 +113,15 @@ class ModelPresenterMixin:
             self.home_model_combo.addItem(model_name, model_name)
 
         active_model = self.config.get("active_model") or ""
+        if active_model and active_model not in models and active_model_path(self.config).exists():
+            # O modelo ativo existe no disco mas nao esta na lista filtrada
+            # para este conjunto de imagens (ex: modelo do projeto nao
+            # promovido a compartilhado). Mantem selecionado em vez de sumir.
+            self.home_model_combo.addItem(active_model, active_model)
+
         index = self.home_model_combo.findData(active_model)
         if index < 0 and active_model:
-            # Modelo salvo no config nao existe mais — limpa
+            # So limpa se o modelo realmente nao existir mais no disco.
             self.config["active_model"] = ""
             save_config(self.config)
             index = 0

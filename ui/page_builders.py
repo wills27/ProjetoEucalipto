@@ -44,20 +44,11 @@ class UiBuilderMixin:
         components.apply_elevation(sidebar)
         body.addWidget(sidebar, 0)
 
-        image_set_label = QLabel("Conjunto de imagens")
-        image_set_label.setObjectName("sidebarSection")
-        sidebar_layout.addWidget(image_set_label)
-        self.image_set_combo = QComboBox()
-        self.image_set_combo.currentIndexChanged.connect(self.on_image_set_selector_changed)
-        sidebar_layout.addWidget(self.image_set_combo)
-        self.image_set_badge = QLabel()
-        self.image_set_badge.setObjectName("imageSetBadge")
-        self.image_set_badge.setWordWrap(True)
-        self.image_set_badge.hide()
-        sidebar_layout.addWidget(self.image_set_badge)
-        self.add_button(sidebar_layout, "Novo conjunto", self.create_image_set)
-        self.add_button(sidebar_layout, "Importar imagens", self.import_images_into_active_image_set)
-        self.add_button(sidebar_layout, "Remover conjunto", self.delete_active_image_set)
+        self.add_button(sidebar_layout, "Importar imagens", self.import_images_into_active_image_set, primary=True)
+
+        sidebar_layout.addSpacing(8)
+
+        self.add_button(sidebar_layout, "Calibracao", self.open_calibration_dialog)
 
         sidebar_layout.addSpacing(8)
 
@@ -70,9 +61,19 @@ class UiBuilderMixin:
 
         sidebar_layout.addSpacing(8)
 
-        self.add_button(sidebar_layout, "Importar Modelo", self.import_prediction_model)
-        self.add_button(sidebar_layout, "Remover Modelo", self.remove_active_model)
-        self.add_button(sidebar_layout, "Calibracao", self.open_calibration_dialog)
+        image_set_label = QLabel("Conjunto de imagens")
+        image_set_label.setObjectName("sidebarSection")
+        sidebar_layout.addWidget(image_set_label)
+        self.image_set_combo = QComboBox()
+        self.image_set_combo.currentIndexChanged.connect(self.on_image_set_selector_changed)
+        sidebar_layout.addWidget(self.image_set_combo)
+        self.image_set_badge = QLabel()
+        self.image_set_badge.setObjectName("imageSetBadge")
+        self.image_set_badge.setWordWrap(True)
+        self.image_set_badge.hide()
+        sidebar_layout.addWidget(self.image_set_badge)
+        self.add_button(sidebar_layout, "Novo conjunto", self.create_image_set)
+        self.add_button(sidebar_layout, "Remover conjunto", self.delete_active_image_set)
 
         sidebar_layout.addStretch()
 

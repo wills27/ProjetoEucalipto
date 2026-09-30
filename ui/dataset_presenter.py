@@ -176,6 +176,7 @@ class DatasetPresenterMixin:
             self.bulk_updating_dataset_selection = False
             self.dataset_pairs_table.blockSignals(False)
             self.dataset_pairs_table.setUpdatesEnabled(True)
+        self.dataset_pairs_table._sync_header_checked()
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_CHECK_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_NUMBER_COL, QHeaderView.ResizeMode.ResizeToContents)
         self.dataset_pairs_table.horizontalHeader().setSectionResizeMode(DATASET_GROUP_COL, QHeaderView.ResizeMode.ResizeToContents)

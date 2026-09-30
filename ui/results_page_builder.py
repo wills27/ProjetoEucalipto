@@ -84,6 +84,10 @@ class ResultsPageBuilderMixin:
         )
         view_results_button = self.add_button(predict_actions, "Visualizar resultados", self.open_results_viewer)
         view_results_button.setObjectName("accent")
+        self.export_results_button = self.add_button(
+            predict_actions, "Exportar CSVs", self.export_result_csvs
+        )
+        self.export_results_button.hide()
         predict_actions.addStretch()
         model_layout.addLayout(predict_actions, 3, 1)
         self.result_progress_label = QLabel("Aguardando processo.")

@@ -68,6 +68,7 @@ class ProjectPresenterMixin:
     def select_project(self, project_name):
         if not project_name or project_name == self.config.get("active_project"):
             return
+        self.discard_pending_image_set_if_active()
         self.reset_project_dependent_state()
         self.config["active_project"] = project_name
         self.config["active_model"] = first_model_name(self.config)
@@ -84,6 +85,7 @@ class ProjectPresenterMixin:
         name = name.strip().replace(" ", "_")
         if not name:
             return
+        self.discard_pending_image_set_if_active()
         self.reset_project_dependent_state()
         self.config["active_project"] = name
         self.config["active_model"] = ""
@@ -122,6 +124,7 @@ class ProjectPresenterMixin:
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        self.discard_pending_image_set_if_active()
         try:
             delete_project_folder(self.config, project_name)
         except (ValueError, OSError) as error:
@@ -192,6 +195,7 @@ class ProjectPresenterMixin:
         if not folder:
             return
 
+        self.discard_pending_image_set_if_active()
         self.reset_project_dependent_state()
         self.config["projects_dir"] = folder
         available_projects = list_projects(self.config)

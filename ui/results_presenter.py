@@ -39,6 +39,7 @@ class ResultsPresenterMixin:
             metrics_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.result_images_table.setItem(row_index, 3, metrics_item)
         self.result_images_table.blockSignals(False)
+        self.result_images_table._sync_header_checked()
         if hasattr(self, "results_list_status"):
             from services.paths import is_default_image_set
             if is_default_image_set(self.config):
@@ -54,17 +55,29 @@ class ResultsPresenterMixin:
         if selected:
             row = self.result_table_row_for_stem(selected)
             if row >= 0:
-                self.result_images_table.setCurrentCell(row, 1)
+                self.select_result_table_row(row)
             elif self.result_images_table.rowCount() > 0:
-                self.result_images_table.setCurrentCell(0, 1)
+                self.select_result_table_row(0)
             else:
                 self.preview_label.setText("Nenhuma imagem encontrada.")
                 self.preview_label.setPixmap(QPixmap())
         elif self.result_images_table.rowCount() > 0:
-            self.result_images_table.setCurrentCell(0, 1)
+            self.select_result_table_row(0)
         else:
             self.preview_label.setText("Nenhuma imagem encontrada.")
             self.preview_label.setPixmap(QPixmap())
+
+    def select_result_table_row(self, row):
+        # setCurrentCell dispara currentCellChanged (conectado a
+        # show_result_table_row) somente quando a linha muda. Quando a linha
+        # selecionada ja era a atual o sinal nao dispara, entao a preview
+        # (overlay/metricas) ficaria travada com dados antigos apos gerar
+        # resultados - por isso forcamos o recarregamento so nesse caso, em
+        # vez de chamar show_result_table_row sempre e renderizar em dobro.
+        was_same_row = self.result_images_table.currentRow() == row
+        self.result_images_table.setCurrentCell(row, 1)
+        if was_same_row:
+            self.show_result_table_row(row)
 
     def show_result_table_row(self, row):
         if row < 0:

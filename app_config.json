@@ -1,8 +1,8 @@
 {
   "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "",
-  "active_image_set": "",
+  "active_model": "Carol",
+  "active_image_set": "__pending__",
   "padding_pixels": 32,
   "diameter": 70.0,
   "cellprob_threshold": 0.0,

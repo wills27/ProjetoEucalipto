@@ -70,6 +70,18 @@ def conversion_input_image_for_stem(config, image_stem):
     return None
 
 
+def image_set_image_path(config, image_stem):
+    """Localiza o arquivo de imagem de um conjunto (custom ou pendente) pelo stem.
+    Diferente da imagem padrao (data/images), este arquivo nao e compartilhado com
+    o dataset de treino, entao remove-lo dos resultados remove o arquivo em si."""
+    images_dir = active_image_set_dir(config)
+    for suffix in IMAGE_EXTENSIONS:
+        image_path = images_dir / f"{image_stem}{suffix}"
+        if image_path.exists():
+            return image_path
+    return None
+
+
 def image_mask_exists(image_path):
     return any(
         (folder / f"{image_path.stem}{suffix}").exists()

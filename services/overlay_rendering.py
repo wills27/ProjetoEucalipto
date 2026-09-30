@@ -127,6 +127,25 @@ def build_label_index(mask):
     return label_to_cell_id, centroids
 
 
+def draw_empty_prediction_banner(image, text="Predicao concluida - nenhum vaso detectado"):
+    """Deixa visualmente claro que a predicao rodou mas nao encontrou nada,
+    em vez de mostrar a imagem original sem nenhuma pista (visualmente
+    identica a uma imagem que ainda nao foi processada)."""
+    image = image.convert("RGB")
+    draw = ImageDraw.Draw(image, "RGBA")
+    font = overlay_id_font(image)
+    width, height = image.size
+    bar_height = max(28, int(height * 0.07))
+    draw.rectangle([(0, 0), (width, bar_height)], fill=(180, 132, 31, 235))
+    text_bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    text_x = max(8, (width - text_width) // 2)
+    text_y = max(0, (bar_height - text_height) // 2) - text_bbox[1]
+    draw.text((text_x, text_y), text, fill=(255, 255, 255), font=font)
+    return image
+
+
 def render_measurement_overlay(base_image, mask, mode):
     if mode == "overlay_50pct":
         filtered = filtrar_celulas_borda_proporcional(

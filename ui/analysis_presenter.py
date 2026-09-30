@@ -12,6 +12,7 @@ from services.image_arrays import normalize_array
 from services.metrics import parse_decimal, read_metrics
 from services.overlay_rendering import (
     build_label_index,
+    draw_empty_prediction_banner,
     overlay_colored_mask_on_image as render_colored_mask_overlay,
     render_colored_id_overlay as render_id_overlay,
     render_measurement_overlay as render_measurement_mask_overlay,
@@ -26,6 +27,7 @@ class AnalysisPresenterMixin:
         }
         stem = self.current_result_image_stem() if hasattr(self, "result_images_table") else None
         self.update_metric_panel(stem)
+        self.refresh_export_results_button()
 
     def refresh_measurement_tables(self):
         if not hasattr(self, "cell_counts_table"):
@@ -66,8 +68,9 @@ class AnalysisPresenterMixin:
         headers = rows[0]
         body = rows[1:]
         has_cal = self._csv_has_calibration(headers, body)
+        unit_symbol = self._csv_unit_symbol(headers, body) if has_cal else ""
         visible = self._csv_visible_columns(headers, has_cal)
-        filtered_headers = [headers[i] for i in visible]
+        filtered_headers = [self._csv_column_label(headers[i], unit_symbol) for i in visible]
         table.setColumnCount(len(filtered_headers))
         table.setHorizontalHeaderLabels(filtered_headers)
         table.setRowCount(len(body))
@@ -85,15 +88,61 @@ class AnalysisPresenterMixin:
         unit_col = headers.index("unidade")
         return any(unit_col < len(row) and row[unit_col].strip() for row in body)
 
+    def _csv_unit_symbol(self, headers, body):
+        unit_col = headers.index("unidade")
+        raw_unit = next(
+            (row[unit_col].strip() for row in body if unit_col < len(row) and row[unit_col].strip()),
+            "",
+        )
+        # "um" e um placeholder ascii pra microns (sem o simbolo grego) usado
+        # na calibracao — troca so esse caso pelo mu de verdade ao exibir.
+        return "µm" if raw_unit.lower() == "um" else raw_unit
+
+    # Rotulos fixos: primeira letra da primeira palavra maiuscula, resto em
+    # minuscula, palavras separadas por espaco (nunca "_"). "celula" vira
+    # "vaso" em todo lugar pra bater com o resto do app.
+    _CSV_FIXED_LABELS = {
+        "imagem": "Imagem",
+        "id_celula": "Id vaso",
+        "quantidade_celulas": "Quantidade vasos",
+        "percentual_area_pintada": "Area pintada %",
+        "freq_vaso_50pct": "Frequencia vasos 50%",
+        "freq_vaso_inteiros": "Frequencia vasos inteiros",
+    }
+
+    def _csv_column_label(self, key, unit_symbol):
+        if unit_symbol:
+            unit_labels = {
+                "area_calibrada": f"Area ({unit_symbol}²)",
+                "diametro_elipse_menor_calibrado": f"Diametro menor ({unit_symbol})",
+                "media_area_calibrada": f"Area media ({unit_symbol}²)",
+                "media_diametro_calibrado": f"Diametro medio ({unit_symbol})",
+            }
+            if key in unit_labels:
+                return unit_labels[key]
+        if key in self._CSV_FIXED_LABELS:
+            return self._CSV_FIXED_LABELS[key]
+        return self._default_column_label(key)
+
+    def _default_column_label(self, key):
+        """Padrao para qualquer coluna sem rotulo customizado acima: troca
+        '_' por espaco e deixa maiuscula so a primeira letra da primeira
+        palavra (o resto minusculo, sem virar Title Case)."""
+        text = key.replace("_", " ").strip()
+        return text[:1].upper() + text[1:] if text else text
+
     def _csv_visible_columns(self, headers, has_calibration):
         always_hidden = {
             "area_px", "perimetro_px", "diametro_elipse_menor_px",
             "media_area_px", "media_diametro_px", "pixels_pintados",
             "perimetro_calibrado",
+            # A unidade agora aparece embutida no nome de cada coluna
+            # calibrada (ex: "Area (µm²)"), entao a coluna solta some.
+            "unidade",
         }
         cal_only = {
             "area_calibrada", "diametro_elipse_menor_calibrado",
-            "media_area_calibrada", "media_diametro_calibrado", "unidade",
+            "media_area_calibrada", "media_diametro_calibrado",
         }
         return [
             i for i, h in enumerate(headers)
@@ -212,6 +261,12 @@ class AnalysisPresenterMixin:
         mask = self.load_mask_array(pred_path)
         if mask is None:
             return None
+
+        if int(mask.max()) == 0:
+            # A predicao rodou (o arquivo existe) mas nao encontrou nenhum
+            # vaso — sem isso, a imagem ficaria identica a uma que nunca foi
+            # processada, dando a falsa impressao de que nada aconteceu.
+            return draw_empty_prediction_banner(base_image)
 
         if mode == "overlay":
             # Mesma fonte (mascara atual + numeracao sequencial) usada pelo

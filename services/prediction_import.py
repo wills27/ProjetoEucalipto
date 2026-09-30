@@ -14,24 +14,6 @@ def path_matches_keyword(path, keyword):
     return bool(keyword and keyword in str(path).lower())
 
 
-def collect_image_paths_from_folder(source_dir, keyword="", recursive=True):
-    image_paths = []
-    for root, dirs, files in __import__("os").walk(source_dir):
-        dirs[:] = [
-            dirname
-            for dirname in dirs
-            if not path_matches_keyword(Path(root) / dirname, keyword)
-        ]
-        for file_name in files:
-            source_path = Path(root) / file_name
-            if path_matches_keyword(source_path, keyword):
-                continue
-            image_paths.append(source_path)
-        if not recursive:
-            dirs[:] = []
-    return image_paths
-
-
 def image_array_to_grayscale(array):
     array = np.asarray(array)
     if array.ndim < 3:

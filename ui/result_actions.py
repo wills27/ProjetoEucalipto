@@ -1,3 +1,6 @@
+from pathlib import Path
+import shutil
+
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
@@ -8,7 +11,9 @@ from services.overlay_rendering import transparent_overlay_from_mask as render_t
 from services.paths import (
     cell_counts_csv_path,
     cell_measurements_csv_path,
+    is_default_image_set,
     metrics_csv_path,
+    model_outputs_dir,
     overlays_dir,
     predictions_dir,
 )
@@ -16,6 +21,7 @@ from services.result_service import (
     build_result_status_index as collect_result_status_index,
     conversion_input_image_for_stem as find_conversion_input_image,
     image_mask_exists,
+    image_set_image_path as find_image_set_image_path,
     legacy_result_overlay_paths as result_legacy_overlay_paths,
     move_to_removed_folder as move_file_to_removed_folder,
     result_conversion_input_images as collect_result_conversion_input_images,
@@ -248,15 +254,27 @@ class ResultActionsMixin:
             QMessageBox.information(self, "Remover imagem", "Selecione ou marque uma ou mais imagens na tabela.")
             return
 
+        default_set = is_default_image_set(self.config)
         image_label = image_stems[0] if len(image_stems) == 1 else f"{len(image_stems)} imagens"
+        if default_set:
+            removal_notice = (
+                "As imagens e mascaras ficarao nos arquivos atuais e voltarao para a aba Dados como Sem categoria. "
+                "Predicoes, overlays e linhas dos CSVs serao removidos dos resultados."
+            )
+        else:
+            removal_notice = (
+                "A(s) imagem(ns) sera(ao) movida(s) para uma pasta 'removidos' (nao ficam mais no conjunto). "
+                "Predicoes, overlays e linhas dos CSVs serao removidos dos resultados."
+            )
+        removal_question = (
+            f"Remover {image_label} da aba de resultados e do conjunto test?"
+            if default_set
+            else f"Remover {image_label} da aba de resultados?"
+        )
         reply = QMessageBox.question(
             self,
             "Remover imagem",
-            (
-                f"Remover {image_label} da aba de resultados e do conjunto test?\n\n"
-                "As imagens e mascaras ficarao nos arquivos atuais e voltarao para a aba Dados como Sem categoria. "
-                "Predicoes, overlays e linhas dos CSVs serao removidos dos resultados."
-            ),
+            f"{removal_question}\n\n{removal_notice}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -267,10 +285,18 @@ class ResultActionsMixin:
         moved_paths = []
         missing_paths = []
         csv_updates = 0
+        removed_images_dir = model_outputs_dir(self.config) / "removed" / "images"
         for image_stem in image_stems:
-            returned = self.return_result_image_to_uncategorized(image_stem)
-            if returned:
-                recategorized_images.append(returned)
+            if default_set:
+                returned = self.return_result_image_to_uncategorized(image_stem)
+                if returned:
+                    recategorized_images.append(returned)
+            else:
+                image_path = find_image_set_image_path(self.config, image_stem)
+                if image_path is not None:
+                    moved_paths.append(self.move_to_removed_folder(image_path, removed_images_dir))
+                else:
+                    missing_paths.append(image_stem)
 
             for source_path, removed_dir in self.result_output_removal_targets(image_stem):
                 if not source_path.exists():
@@ -366,3 +392,55 @@ class ResultActionsMixin:
             image.convert("RGB").save(path, format="PNG")
             exported += 1
         QMessageBox.information(self, "Exportar imagem", f"{exported} imagem(ns) exportada(s) para:\n{folder}")
+
+    def results_csv_paths(self):
+        return [
+            path
+            for path in (cell_counts_csv_path(self.config), cell_measurements_csv_path(self.config))
+            if path.exists()
+        ]
+
+    def refresh_export_results_button(self):
+        if not hasattr(self, "export_results_button"):
+            return
+        self.export_results_button.setVisible(bool(self.results_csv_paths()))
+
+    def export_result_csvs(self):
+        sources = self.results_csv_paths()
+        if not sources:
+            QMessageBox.information(
+                self,
+                "Exportar resultados",
+                "Nenhum CSV de resultados encontrado. Gere os resultados primeiro.",
+            )
+            return
+
+        folder = QFileDialog.getExistingDirectory(self, "Exportar CSVs de resultados")
+        if not folder:
+            return
+
+        exported = []
+        errors = []
+        for src in sources:
+            try:
+                shutil.copy2(src, Path(folder) / src.name)
+                exported.append(src.name)
+            except OSError as error:
+                errors.append(f"{src.name}: {error}")
+
+        if exported:
+            self.append_log(
+                f"\n>>> Exportar CSVs de resultados\n"
+                f"Destino: {folder}\n"
+                f"Arquivos: {', '.join(exported)}\n"
+            )
+        if errors:
+            self.show_error(
+                "Exportar resultados",
+                f"{len(errors)} arquivo(s) nao puderam ser exportados.",
+                "\n".join(errors),
+            )
+        else:
+            QMessageBox.information(
+                self, "Exportar resultados", f"{len(exported)} arquivo(s) exportado(s) para:\n{folder}"
+            )

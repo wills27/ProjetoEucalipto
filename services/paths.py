@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import shutil
 import sys
+import tempfile
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -67,6 +68,7 @@ def project_models_dir(config):
 
 
 DEFAULT_IMAGE_SET = "__default__"
+PENDING_IMAGE_SET = "__pending__"
 
 
 def shared_models_dir(config):
@@ -85,8 +87,72 @@ def is_default_image_set(config):
     return active_image_set_name(config) == DEFAULT_IMAGE_SET
 
 
+def is_pending_image_set(config):
+    return active_image_set_name(config) == PENDING_IMAGE_SET
+
+
+def pending_import_dir(config):
+    """Pasta temporaria (fora do projeto) para imagens importadas antes de existir
+    um conjunto para recebe-las. E limpa quando o app fecha normalmente.
+
+    Apenas calcula o caminho - nao cria a pasta. Quem for escrever nela deve
+    chamar mkdir explicitamente, pra essa funcao poder ser usada em checagens
+    de leitura (ex.: active_image_set_dir) sem criar pastas temporarias no
+    disco so por causa de uma consulta de status."""
+    return Path(tempfile.gettempdir()) / APP_NAME / "pending_import" / config.get("active_project", "default")
+
+
+def clear_pending_import_dir(config):
+    shutil.rmtree(pending_import_dir(config), ignore_errors=True)
+
+
+def clear_pending_outputs(config):
+    """Remove predicoes/overlays/csvs ja gerados para o conjunto pendente, em
+    todos os modelos do projeto ativo. Usado ao descartar uma importacao
+    pendente sem nomea-la (a pasta '__pending__' nao tem como ser alcancada
+    novamente depois disso)."""
+    outputs_root = active_project_dir(config) / "outputs"
+    if not outputs_root.exists():
+        return
+    for model_dir in outputs_root.iterdir():
+        pending_outputs = model_dir / "image_sets" / PENDING_IMAGE_SET
+        if pending_outputs.exists():
+            shutil.rmtree(pending_outputs, ignore_errors=True)
+
+
+def move_image_set_outputs(config, source_name, target_name):
+    """Move predicoes/overlays/csvs de um conjunto de imagens para outro, em
+    todos os modelos do projeto ativo, mesclando com o que ja existir no
+    destino em vez de sobrescrever silenciosamente."""
+    if source_name == target_name:
+        return
+    outputs_root = active_project_dir(config) / "outputs"
+    if not outputs_root.exists():
+        return
+    for model_dir in outputs_root.iterdir():
+        source = model_dir / "image_sets" / source_name
+        if not source.exists():
+            continue
+        target = model_dir / "image_sets" / target_name
+        if target.exists():
+            for item in source.iterdir():
+                destination = target / item.name
+                if destination.exists():
+                    if destination.is_dir():
+                        shutil.rmtree(destination, ignore_errors=True)
+                    else:
+                        destination.unlink()
+                shutil.move(str(item), str(destination))
+            shutil.rmtree(source, ignore_errors=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+
+
 def active_image_set_dir(config):
     name = active_image_set_name(config)
+    if name == PENDING_IMAGE_SET:
+        return pending_import_dir(config)
     if name == DEFAULT_IMAGE_SET:
         return dataset_images_dir(config)
     return image_sets_dir(config) / name / "images"

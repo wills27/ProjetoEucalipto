@@ -4,7 +4,8 @@ import os
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from services.paths import PROJECT_DIR
+from services.config import save_config, with_derived_paths
+from services.paths import DEFAULT_IMAGE_SET, PROJECT_DIR, is_pending_image_set
 from ui.styles import APP_STYLE
 
 
@@ -18,6 +19,7 @@ class WindowChromeMixin:
 
         model_menu = menu_bar.addMenu("Modelo")
         self.add_menu_action(model_menu, "Importar modelo", self.import_prediction_model)
+        self.add_menu_action(model_menu, "Remover modelo", self.remove_active_model)
         self.add_menu_action(model_menu, "Promover modelo para compartilhados", self.promote_active_model)
         model_menu.addSeparator()
         self.add_menu_action(model_menu, "Treinar modelo", self.open_training_page)
@@ -37,6 +39,17 @@ class WindowChromeMixin:
         action.triggered.connect(callback)
         menu.addAction(action)
         return action
+
+    def closeEvent(self, event):
+        # Imagens importadas antes de existir um conjunto ficam numa pasta
+        # temporaria (e quaisquer predicoes ja geradas para elas); ao fechar
+        # o app normalmente, sao descartadas.
+        if is_pending_image_set(self.config):
+            self.discard_pending_image_set_if_active()
+            self.config["active_image_set"] = DEFAULT_IMAGE_SET
+            self.config = with_derived_paths(self.config)
+            save_config(self.config)
+        super().closeEvent(event)
 
     def set_page(self, index):
         self.stack.setCurrentIndex(index)

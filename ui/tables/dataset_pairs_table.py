@@ -1,6 +1,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMenu, QTableWidget
 
+from ui import components
+
 # Coluna 0 e sempre o checkbox de acao em lote (ver DATASET_CHECK_COL em
 # ui/dataset_presenter.py). E deliberadamente separado da selecao/destaque de
 # linha do Qt, que aqui significa "incluir no treino" - por isso o clique
@@ -13,17 +15,28 @@ class DatasetPairsTable(QTableWidget):
         super().__init__(*args, **kwargs)
         self.delete_callback = delete_callback
         self.move_callback = move_callback
+        self.setHorizontalHeader(components.make_checkbox_header(CHECK_COLUMN, self))
         self.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
 
-    def _on_header_clicked(self, section):
-        if section != CHECK_COLUMN:
-            return
+    def _visible_rows_all_checked(self):
         visible_rows = [r for r in range(self.rowCount()) if not self.isRowHidden(r)]
-        all_checked = all(
+        return visible_rows, all(
             self.item(r, CHECK_COLUMN) is not None
             and self.item(r, CHECK_COLUMN).checkState() == Qt.CheckState.Checked
             for r in visible_rows
         )
+
+    def _sync_header_checked(self):
+        """Recalcula o estado do quadrado do cabecalho a partir das linhas
+        visiveis, para nao ficar dessincronizado quando uma linha e marcada
+        individualmente (fora do clique no proprio cabecalho)."""
+        _, all_checked = self._visible_rows_all_checked()
+        self.horizontalHeader().set_checked(all_checked)
+
+    def _on_header_clicked(self, section):
+        if section != CHECK_COLUMN:
+            return
+        visible_rows, all_checked = self._visible_rows_all_checked()
         new_state = Qt.CheckState.Unchecked if all_checked else Qt.CheckState.Checked
         self.blockSignals(True)
         for r in visible_rows:
@@ -31,6 +44,7 @@ class DatasetPairsTable(QTableWidget):
             if item is not None:
                 item.setCheckState(new_state)
         self.blockSignals(False)
+        self.horizontalHeader().set_checked(new_state == Qt.CheckState.Checked)
 
     def mousePressEvent(self, event):
         index = self.indexAt(event.pos())
@@ -39,6 +53,7 @@ class DatasetPairsTable(QTableWidget):
             if item is not None:
                 checked = item.checkState() == Qt.CheckState.Checked
                 item.setCheckState(Qt.CheckState.Unchecked if checked else Qt.CheckState.Checked)
+                self._sync_header_checked()
                 event.accept()
                 return
         super().mousePressEvent(event)
