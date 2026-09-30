@@ -22,6 +22,14 @@ from services.config import save_config
 from services.paths import PROJECT_DIR
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
+# Limite de tamanho (em px) do maior lado do pixmap renderizado. Determina o
+# zoom maximo alcancavel: abaixo desse valor, o teto de zoom passa a ser o
+# real gargalo em imagens grandes (ver zoom_preview), impedindo marcar os
+# pontos de calibracao com precisao de pixel. Mais alto que o usado nos
+# outros previews com zoom (ui/annotation_editor.py, ui/dialogs/results_viewer_dialog.py)
+# porque aqui a precisao do clique e o proposito principal da tela.
+MAX_TARGET_DIMENSION = 20000
+
 
 class CalibrationDialog(QDialog):
     def __init__(self, window):
@@ -375,7 +383,12 @@ class CalibrationDialog(QDialog):
             viewport_y = y - self.scroll_area.verticalScrollBar().value()
 
         factor = 1.15 if delta > 0 else 1 / 1.15
-        self.zoom = max(0.2, min(150.0, self.zoom * factor))
+        width, height = self.current_preview_image.size
+        viewport_size = self.scroll_area.viewport().size()
+        fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
+        max_absolute_scale = MAX_TARGET_DIMENSION / max(width, height)
+        max_zoom = max_absolute_scale / fit_scale if fit_scale > 0 else 150.0
+        self.zoom = max(0.2, min(max_zoom, self.zoom * factor))
         self.set_preview_pixmap()
 
         if point is not None and viewport_x is not None and viewport_y is not None:
@@ -398,8 +411,7 @@ class CalibrationDialog(QDialog):
         viewport_size = self.scroll_area.viewport().size()
         fit_scale = min(viewport_size.width() / width, viewport_size.height() / height)
         scale = max(0.05, fit_scale * self.zoom)
-        max_dimension = 13000
-        scale = min(scale, max_dimension / max(width, height))
+        scale = min(scale, MAX_TARGET_DIMENSION / max(width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
         pixmap = self.current_preview_pixmap.scaled(
