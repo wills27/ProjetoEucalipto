@@ -2,7 +2,7 @@ import json
 import threading
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import Qt, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -21,11 +21,17 @@ from PyQt6.QtWidgets import (
 )
 from skimage.segmentation import find_boundaries
 
+from services.cell_measurements import build_mask_inteiros
 from services.overlay_rendering import draw_mask_ids
 from services.paths import cell_counts_csv_path, cell_measurements_csv_path, overlays_dir, predictions_dir
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
 MAX_TARGET_DIMENSION = 13000
+
+# Sobe sempre que o formato de region_values_by_label mudar (ex.: novo campo
+# usado nas contas), pra um cache em disco gravado com o formato antigo ser
+# descartado e recalculado em vez de ser lido com o campo novo faltando.
+INDEX_FORMAT_VERSION = 2
 
 
 class _OverlaySignals(QObject):
@@ -38,6 +44,13 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
         mask = window.load_mask_array(pred_path)
         if mask is None:
             return None, None, {}, {}
+
+        # Mesmo criterio de "vaso inteiro" usado no resumo (cell_counts.csv /
+        # freq_vaso_inteiros): vasos cortados na borda da imagem entram na
+        # lista e no overlay normalmente, mas ficam marcados aqui pra nao
+        # contaminar a media de area em update_image_stats (um vaso cortado
+        # tem area menor so por estar cortado, nao por ser menor de verdade).
+        whole_labels = set(np.unique(build_mask_inteiros(mask)).tolist()) - {0}
 
         label_to_cell_id = {}
         region_values_by_label = {}
@@ -59,6 +72,7 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
                 "cell_id": str(index),
                 "area_px": f"{area:.3f}",
                 "perimeter_px": f"{perimeter_value:.3f}" if perimeter is not None else "",
+                "vaso_inteiro": label_value in whole_labels,
             }
 
         disk_path = overlays_dir(window.config) / f"{image_stem}_viewer_overlay.png"
@@ -72,6 +86,8 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
                         overlay = img.convert("RGB").copy()
                     with open(index_path, "r", encoding="utf-8") as f:
                         index_data = json.load(f)
+                    if index_data.get("format_version") != INDEX_FORMAT_VERSION:
+                        raise KeyError("cache do viewer em formato desatualizado")
                     label_to_cell_id = {int(k): v for k, v in index_data["label_to_cell_id"].items()}
                     region_values_by_label = {int(k): v for k, v in index_data["region_values_by_label"].items()}
                     return overlay, mask, label_to_cell_id, region_values_by_label
@@ -94,6 +110,7 @@ def _compute_overlay(window, image_stem, image_path, pred_path):
             overlay.save(str(disk_path), format="PNG", optimize=True)
             with open(index_path, "w", encoding="utf-8") as f:
                 json.dump({
+                    "format_version": INDEX_FORMAT_VERSION,
                     "label_to_cell_id": {str(k): v for k, v in label_to_cell_id.items()},
                     "region_values_by_label": {str(k): v for k, v in region_values_by_label.items()},
                 }, f)
@@ -121,6 +138,22 @@ class ResultsViewerDialog(QDialog):
         self.region_values_by_label = {}
         self.measurements_by_image = {}
         self.zoom = 1.0
+        # Reescalar o pixmap inteiro (set_preview_pixmap) a cada evento de
+        # wheel e caro em zoom alto, e trackpads/mouses de precisao disparam
+        # muitos eventos por "um scroll". Sem throttle, a UI trava
+        # processando cada um, o SO enfileira os seguintes, e quando libera
+        # processa o acumulo de uma vez - parece que o zoom "trava" e depois
+        # precisa de scroll bem maior pra desfazer. Aqui o calculo do zoom
+        # continua rodando a cada evento (barato), mas o redesenho pesado e
+        # agrupado: o primeiro evento de uma rajada redesenha na hora
+        # (feedback imediato) e os seguintes, enquanto durar a rajada, ficam
+        # agrupados num redesenho a cada 30ms em vez de um por evento.
+        self._zoom_redraw_timer = QTimer(self)
+        self._zoom_redraw_timer.setInterval(30)
+        self._zoom_redraw_timer.timeout.connect(self._flush_pending_zoom_redraw)
+        self._zoom_redraw_pending = False
+        self._pending_zoom_point = None
+        self._pending_zoom_viewport = (None, None)
         self._overlay_signals = _OverlaySignals()
         self._overlay_signals.ready.connect(self._on_overlay_ready)
         self._loading_stem = None
@@ -382,22 +415,30 @@ class ResultsViewerDialog(QDialog):
     def update_image_stats(self):
         total = len(self.region_values_by_label)
         if total == 0:
-            self.image_stats_label.setText("Sem células detectadas")
+            self.image_stats_label.setText("Sem vasos detectados")
             return
         unit, unit_per_pixel = self.window.calibration()
         has_calibration = unit_per_pixel > 0
+        # Area media so soma vasos inteiros (nao cortados na borda da
+        # imagem): um vaso parcial tem area menor so por estar cortado, nao
+        # por ser menor de verdade, e enviesaria a media pra baixo. Mesmo
+        # criterio de "freq_vaso_inteiros"/"media_area_px" ja usado no resumo
+        # (services/cell_measurements.py), agora tambem aqui na visualizacao.
+        whole_values = [v for v in self.region_values_by_label.values() if v.get("vaso_inteiro")]
         areas = []
-        for values in self.region_values_by_label.values():
+        for values in whole_values:
             try:
                 area_px = float(values.get("area_px", 0) or 0)
             except ValueError:
                 continue
             areas.append(area_px * (unit_per_pixel ** 2) if has_calibration else area_px)
-        lines = [f"Total: {total} células"]
+        lines = [f"Vasos detectados: {total}", f"Vasos inteiros: {len(whole_values)}"]
         if areas:
             avg = sum(areas) / len(areas)
             suffix = f" {unit}²" if has_calibration else " px²"
-            lines.append(f"Área média: {avg:.2f}{suffix}")
+            lines.append(f"Área média (vasos inteiros): {avg:.2f}{suffix}")
+        else:
+            lines.append("Área média: nenhum vaso inteiro nesta imagem")
         self.image_stats_label.setText("\n".join(lines))
 
     def render_selected_overlay(self, label_value=None):
@@ -606,7 +647,24 @@ class ResultsViewerDialog(QDialog):
         max_absolute_scale = MAX_TARGET_DIMENSION / max(width, height)
         max_zoom = max_absolute_scale / fit_scale if fit_scale > 0 else 150.0
         self.zoom = max(0.2, min(max_zoom, self.zoom * factor))
+
+        self._pending_zoom_point = point
+        self._pending_zoom_viewport = (viewport_x, viewport_y)
+        self._zoom_redraw_pending = True
+        if not self._zoom_redraw_timer.isActive():
+            # Primeiro evento da rajada: redesenha na hora pra nao parecer
+            # travado, e so entao liga o timer pra agrupar os proximos.
+            self._flush_pending_zoom_redraw()
+            self._zoom_redraw_timer.start()
+
+    def _flush_pending_zoom_redraw(self):
+        if not self._zoom_redraw_pending:
+            self._zoom_redraw_timer.stop()
+            return
+        self._zoom_redraw_pending = False
         self.set_preview_pixmap()
+        point = self._pending_zoom_point
+        viewport_x, viewport_y = self._pending_zoom_viewport
         if point is not None and viewport_x is not None and viewport_y is not None:
             scale = getattr(self.result_preview, "_display_scale", 1.0)
             self.preview_scroll_area.horizontalScrollBar().setValue(int(point[0] * scale - viewport_x))

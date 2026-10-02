@@ -40,6 +40,22 @@ class AnnotationEditorDialog(QDialog):
         self.current_image = None
         self.current_pixmap = None
         self.zoom = 1.0
+        # Reescalar o pixmap inteiro (_set_preview_pixmap) a cada evento de
+        # wheel e caro em zoom alto, e trackpads/mouses de precisao disparam
+        # muitos eventos por "um scroll". Sem throttle, a UI trava
+        # processando cada um, o SO enfileira os seguintes, e quando libera
+        # processa o acumulo de uma vez - parece que o zoom "trava" e depois
+        # precisa de scroll bem maior pra desfazer. Aqui o calculo do zoom
+        # continua rodando a cada evento (barato), mas o redesenho pesado e
+        # agrupado: o primeiro evento de uma rajada redesenha na hora
+        # (feedback imediato) e os seguintes, enquanto durar a rajada, ficam
+        # agrupados num redesenho a cada 30ms em vez de um por evento.
+        self._zoom_redraw_timer = QTimer(self)
+        self._zoom_redraw_timer.setInterval(30)
+        self._zoom_redraw_timer.timeout.connect(self._flush_pending_zoom_redraw)
+        self._zoom_redraw_pending = False
+        self._pending_zoom_point = None
+        self._pending_zoom_viewport = (None, None)
         self.view_callback = view_callback
         self.view_mode = "overlay"
         self.is_busy = False
@@ -223,8 +239,24 @@ class AnnotationEditorDialog(QDialog):
         max_absolute_scale = MAX_TARGET_DIMENSION / max(width, height)
         max_zoom = max_absolute_scale / fit_scale if fit_scale > 0 else 150.0
         self.zoom = max(0.2, min(max_zoom, self.zoom * factor))
-        self._set_preview_pixmap()
 
+        self._pending_zoom_point = point
+        self._pending_zoom_viewport = (viewport_x, viewport_y)
+        self._zoom_redraw_pending = True
+        if not self._zoom_redraw_timer.isActive():
+            # Primeiro evento da rajada: redesenha na hora pra nao parecer
+            # travado, e so entao liga o timer pra agrupar os proximos.
+            self._flush_pending_zoom_redraw()
+            self._zoom_redraw_timer.start()
+
+    def _flush_pending_zoom_redraw(self):
+        if not self._zoom_redraw_pending:
+            self._zoom_redraw_timer.stop()
+            return
+        self._zoom_redraw_pending = False
+        self._set_preview_pixmap()
+        point = self._pending_zoom_point
+        viewport_x, viewport_y = self._pending_zoom_viewport
         if point is not None and viewport_x is not None and viewport_y is not None:
             scale = getattr(self.preview_label, "_display_scale", 1.0)
             self.scroll_area.horizontalScrollBar().setValue(int(point[0] * scale - viewport_x))

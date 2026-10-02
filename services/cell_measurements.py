@@ -11,8 +11,10 @@ MEASUREMENT_COLUMNS = [
     "id_celula",
     "area_px",
     "diametro_elipse_menor_px",
+    "diametro_cruzado_px",
     "area_calibrada",
     "diametro_elipse_menor_calibrado",
+    "diametro_cruzado_calibrado",
     "unidade",
 ]
 
@@ -25,8 +27,10 @@ SUMMARY_COLUMNS = [
     "percentual_area_pintada",
     "media_area_px",
     "media_diametro_px",
+    "media_diametro_cruzado_px",
     "media_area_calibrada",
     "media_diametro_calibrado",
+    "media_diametro_cruzado_calibrado",
     "unidade",
 ]
 
@@ -40,6 +44,10 @@ class EllipseMinorAxisResult:
     centroid_rc: tuple[float, float]
     axis_start_rc: tuple[float, float]
     axis_end_rc: tuple[float, float]
+    major_axis_length: float = 0.0
+    major_axis_start_rc: tuple[float, float] = (0.0, 0.0)
+    major_axis_end_rc: tuple[float, float] = (0.0, 0.0)
+    diametro_cruzado: float = 0.0
 
 
 def filtrar_celulas_borda_proporcional(
@@ -118,11 +126,17 @@ def filtrar_celulas_borda_proporcional(
     return np.where(np.isin(masks, labels_a_manter), masks, 0)
 
 
-def compute_ellipse_minor_axis_by_label(mask):
+def compute_ellipse_axes_by_label(mask):
+    """Para cada vaso, ajusta uma elipse (mesmos momentos de 2a ordem que a
+    regiao) e devolve os dois eixos: o menor (ja usado no modo 'Diametro') e
+    o maior (novo, usado no 'Diametro cruzado'). 'diametro_cruzado' e a media
+    dos dois - uma aproximacao mais robusta que o eixo menor sozinho pra
+    vasos alongados/ovais, onde o eixo menor sozinho subestima o diametro."""
     results = {}
 
     for p in regionprops(mask):
         minor = float(getattr(p, "axis_minor_length", 0.0) or 0.0)
+        major = float(getattr(p, "axis_major_length", 0.0) or 0.0)
 
         if minor <= 0.0:
             continue
@@ -137,12 +151,31 @@ def compute_ellipse_minor_axis_by_label(mask):
         x1, y1 = cx - dx_minor, cy - dy_minor
         x2, y2 = cx + dx_minor, cy + dy_minor
 
+        major_start = (0.0, 0.0)
+        major_end = (0.0, 0.0)
+        diametro_cruzado = 0.0
+        if major > 0.0:
+            half_major = 0.5 * major
+            # Perpendicular ao eixo menor (mesma formula canonica do skimage
+            # pra desenhar os dois eixos da elipse a partir de 'orientation').
+            dx_major = -np.sin(theta) * half_major
+            dy_major = -np.cos(theta) * half_major
+            mx1, my1 = cx - dx_major, cy - dy_major
+            mx2, my2 = cx + dx_major, cy + dy_major
+            major_start = (my1, mx1)
+            major_end = (my2, mx2)
+            diametro_cruzado = (minor + major) / 2.0
+
         results[int(p.label)] = EllipseMinorAxisResult(
             label=int(p.label),
             minor_axis_length=minor,
             centroid_rc=(cy, cx),
             axis_start_rc=(y1, x1),
             axis_end_rc=(y2, x2),
+            major_axis_length=major,
+            major_axis_start_rc=major_start,
+            major_axis_end_rc=major_end,
+            diametro_cruzado=diametro_cruzado,
         )
 
     return results
@@ -186,6 +219,7 @@ def build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit="", 
         ellipse = ellipse_by_label.get(p.label)
         area_px = float(p.area)
         diameter_px = float(ellipse.minor_axis_length) if ellipse else None
+        diametro_cruzado_px = float(ellipse.diametro_cruzado) if ellipse and ellipse.diametro_cruzado else None
 
         rows.append(
             {
@@ -193,8 +227,10 @@ def build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit="", 
                 "id_celula": i,
                 "area_px": round(area_px, 2),
                 "diametro_elipse_menor_px": round(diameter_px, 2) if diameter_px is not None else None,
+                "diametro_cruzado_px": round(diametro_cruzado_px, 2) if diametro_cruzado_px is not None else None,
                 "area_calibrada": round(area_px * (unit_per_pixel ** 2), 2) if has_calibration else None,
                 "diametro_elipse_menor_calibrado": round(diameter_px * unit_per_pixel, 2) if has_calibration and diameter_px is not None else None,
+                "diametro_cruzado_calibrado": round(diametro_cruzado_px * unit_per_pixel, 2) if has_calibration and diametro_cruzado_px is not None else None,
                 "unidade": unit if has_calibration else "",
             }
         )
@@ -219,9 +255,15 @@ def build_summary_row(
         for p in props_inteiros
         if p.label in ellipse_by_label
     ]
+    diametros_cruzados_inteiros = [
+        ellipse_by_label[p.label].diametro_cruzado
+        for p in props_inteiros
+        if p.label in ellipse_by_label and ellipse_by_label[p.label].diametro_cruzado
+    ]
 
     media_area = np.mean(areas_inteiros) if areas_inteiros else 0
     media_diametro = np.mean(diametros_inteiros) if diametros_inteiros else 0
+    media_diametro_cruzado = np.mean(diametros_cruzados_inteiros) if diametros_cruzados_inteiros else 0
     fracao_area_vasos = area_total_vasos / area_total_img
     has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
@@ -234,8 +276,10 @@ def build_summary_row(
         "freq_vaso_inteiros": len(props_inteiros),
         "media_area_px": round(float(media_area), 2),
         "media_diametro_px": round(float(media_diametro), 2),
+        "media_diametro_cruzado_px": round(float(media_diametro_cruzado), 2),
         "media_area_calibrada": round(float(media_area * (unit_per_pixel ** 2)), 2) if has_calibration else None,
         "media_diametro_calibrado": round(float(media_diametro * unit_per_pixel), 2) if has_calibration else None,
+        "media_diametro_cruzado_calibrado": round(float(media_diametro_cruzado * unit_per_pixel), 2) if has_calibration else None,
         "unidade": unit if has_calibration else "",
     }
 
@@ -254,10 +298,10 @@ def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixe
 
     mask_inteiros = build_mask_inteiros(mask)
     props_inteiros = regionprops(mask_inteiros)
-    ellipse_by_label_inteiros = compute_ellipse_minor_axis_by_label(mask_inteiros)
+    ellipse_by_label_inteiros = compute_ellipse_axes_by_label(mask_inteiros)
 
     props_todos = regionprops(mask)
-    ellipse_by_label_todos = compute_ellipse_minor_axis_by_label(mask)
+    ellipse_by_label_todos = compute_ellipse_axes_by_label(mask)
     area_total_vasos = sum(p.area for p in props_todos)
     area_total_img = H * W
 

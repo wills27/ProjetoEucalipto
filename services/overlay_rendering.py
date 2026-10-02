@@ -5,7 +5,7 @@ from skimage.segmentation import find_boundaries
 
 from services.cell_measurements import (
     build_mask_inteiros,
-    compute_ellipse_minor_axis_by_label,
+    compute_ellipse_axes_by_label,
     filtrar_celulas_borda_proporcional,
 )
 
@@ -160,16 +160,38 @@ def render_measurement_overlay(base_image, mask, mode):
     image = overlay_colored_mask_on_image(base_image, filtered)
     if mode == "overlay_diametro":
         image = draw_minor_axes(image, filtered)
+    elif mode == "overlay_diametro_cruzado":
+        image = draw_crossed_axes(image, filtered)
     return image
 
 
 def draw_minor_axes(image, mask):
     draw = ImageDraw.Draw(image)
-    axes = compute_ellipse_minor_axis_by_label(mask)
+    axes = compute_ellipse_axes_by_label(mask)
     for ellipse in axes.values():
         y1, x1 = ellipse.axis_start_rc
         y2, x2 = ellipse.axis_end_rc
         cy, cx = ellipse.centroid_rc
         draw.line((x1, y1, x2, y2), fill=(255, 235, 59), width=3)
         draw.ellipse((cx - 3, cy - 3, cx + 3, cy + 3), fill=(255, 235, 59))
+    return image
+
+
+def draw_crossed_axes(image, mask):
+    """Modo 'Diametro cruzado': desenha os dois eixos da elipse ajustada -
+    o menor (amarelo, igual ao modo 'Diametro') e o maior (azul), cruzando
+    pelo centroide. O diametro cruzado exibido nas tabelas/CSV e a media
+    dos dois; aqui os dois ficam visiveis separadamente pra conferencia."""
+    draw = ImageDraw.Draw(image)
+    axes = compute_ellipse_axes_by_label(mask)
+    for ellipse in axes.values():
+        cy, cx = ellipse.centroid_rc
+        y1, x1 = ellipse.axis_start_rc
+        y2, x2 = ellipse.axis_end_rc
+        draw.line((x1, y1, x2, y2), fill=(255, 235, 59), width=3)
+        if ellipse.major_axis_length > 0.0:
+            my1, mx1 = ellipse.major_axis_start_rc
+            my2, mx2 = ellipse.major_axis_end_rc
+            draw.line((mx1, my1, mx2, my2), fill=(66, 165, 245), width=3)
+        draw.ellipse((cx - 3, cy - 3, cx + 3, cy + 3), fill=(255, 255, 255))
     return image

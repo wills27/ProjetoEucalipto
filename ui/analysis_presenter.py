@@ -115,8 +115,14 @@ class AnalysisPresenterMixin:
             unit_labels = {
                 "area_calibrada": f"Area ({unit_symbol}²)",
                 "diametro_elipse_menor_calibrado": f"Diametro menor ({unit_symbol})",
+                "diametro_cruzado_calibrado": f"Diametro cruzado ({unit_symbol})",
                 "media_area_calibrada": f"Area media ({unit_symbol}²)",
-                "media_diametro_calibrado": f"Diametro medio ({unit_symbol})",
+                # "media_diametro_calibrado" e a media do eixo MENOR (mesmo
+                # criterio da coluna por vaso "Diametro menor" acima) - o
+                # rotulo deixa isso explicito agora que existe tambem a
+                # media do diametro cruzado, logo abaixo.
+                "media_diametro_calibrado": f"Diametro menor ({unit_symbol})",
+                "media_diametro_cruzado_calibrado": f"Diametro cruzado medio ({unit_symbol})",
             }
             if key in unit_labels:
                 return unit_labels[key]
@@ -133,16 +139,16 @@ class AnalysisPresenterMixin:
 
     def _csv_visible_columns(self, headers, has_calibration):
         always_hidden = {
-            "area_px", "perimetro_px", "diametro_elipse_menor_px",
-            "media_area_px", "media_diametro_px", "pixels_pintados",
+            "area_px", "perimetro_px", "diametro_elipse_menor_px", "diametro_cruzado_px",
+            "media_area_px", "media_diametro_px", "media_diametro_cruzado_px", "pixels_pintados",
             "perimetro_calibrado",
             # A unidade agora aparece embutida no nome de cada coluna
             # calibrada (ex: "Area (µm²)"), entao a coluna solta some.
             "unidade",
         }
         cal_only = {
-            "area_calibrada", "diametro_elipse_menor_calibrado",
-            "media_area_calibrada", "media_diametro_calibrado",
+            "area_calibrada", "diametro_elipse_menor_calibrado", "diametro_cruzado_calibrado",
+            "media_area_calibrada", "media_diametro_calibrado", "media_diametro_cruzado_calibrado",
         }
         return [
             i for i, h in enumerate(headers)
@@ -160,7 +166,7 @@ class AnalysisPresenterMixin:
             QTimer.singleShot(0, lambda stem=image_stem: self.preload_fast_result_views(stem))
             return
 
-        if self.current_view_mode in {"overlay", "overlay_50pct", "overlay_inteiros", "overlay_diametro"}:
+        if self.current_view_mode in {"overlay", "overlay_50pct", "overlay_inteiros", "overlay_diametro", "overlay_diametro_cruzado"}:
             image_path = self.analysis_image_path(image_stem, "original")
             if image_path is not None and image_path.exists():
                 self.show_image_file(image_path)
@@ -208,7 +214,7 @@ class AnalysisPresenterMixin:
         image_key = self.cache_key("image", image_path)
         if mode == "original":
             return "render", stem, mode, image_key
-        if mode in {"overlay", "overlay_50pct", "overlay_inteiros", "overlay_diametro"}:
+        if mode in {"overlay", "overlay_50pct", "overlay_inteiros", "overlay_diametro", "overlay_diametro_cruzado"}:
             pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
             if not pred_path.exists():
                 return None

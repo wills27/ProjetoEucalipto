@@ -2,7 +2,7 @@
   "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
   "active_model": "Carol",
-  "active_image_set": "__pending__",
+  "active_image_set": "__default__",
   "padding_pixels": 32,
   "diameter": 70.0,
   "cellprob_threshold": 0.0,
@@ -16,7 +16,7 @@
     "source_image": "C:\\Users\\santa\\Downloads\\Escala\\50x.jpg"
   },
   "import_dataset_prefix_folders": false,
-  "calibration_last_image_dir": "",
+  "calibration_last_image_dir": "C:\\Users\\santa\\Desktop\\ProjetoEucalipto",
   "import_results_grayscale": true,
   "import_dataset_recursive": true,
   "import_dataset_skip_keyword": "",

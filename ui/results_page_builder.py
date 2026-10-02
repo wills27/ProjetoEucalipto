@@ -147,6 +147,7 @@ class ResultsPageBuilderMixin:
             ("Freq. 50%", "overlay_50pct"),
             ("Freq. 100%", "overlay_inteiros"),
             ("Diametro", "overlay_diametro"),
+            ("Diametro cruzado", "overlay_diametro_cruzado"),
         ]:
             button = self.add_mode_button(
                 mode_layout, label, lambda checked=False, selected=mode: self.set_view_mode(selected)
