@@ -436,9 +436,9 @@ class ResultsViewerDialog(QDialog):
         if areas:
             avg = sum(areas) / len(areas)
             suffix = f" {unit}²" if has_calibration else " px²"
-            lines.append(f"Área média (vasos inteiros): {avg:.2f}{suffix}")
+            lines.append(f"Área média dos vasos (vasos inteiros): {avg:.2f}{suffix}")
         else:
-            lines.append("Área média: nenhum vaso inteiro nesta imagem")
+            lines.append("Área média dos vasos: nenhum vaso inteiro nesta imagem")
         self.image_stats_label.setText("\n".join(lines))
 
     def render_selected_overlay(self, label_value=None):

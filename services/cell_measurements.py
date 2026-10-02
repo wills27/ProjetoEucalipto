@@ -36,6 +36,33 @@ SUMMARY_COLUMNS = [
 
 WHOLE_CELL_BORDER_EXCLUSION = 2
 
+# Fatores de conversao pra mm, usados so pra expressar "vasos por mm2" (ver
+# vessel_frequency_per_mm2) sempre no mesmo padrao, nao importa a unidade de
+# calibracao configurada (um/mm/nm).
+_UNIT_TO_MM = {"mm": 1.0, "um": 0.001, "µm": 0.001, "nm": 1e-6}
+
+
+def vessel_frequency_per_mm2(count, area_total_img_px, unit, unit_per_pixel):
+    """'Vessel frequency' no sentido padrao da anatomia da madeira (IAWA):
+    vasos por mm2 da area TOTAL da imagem examinada (nao da area pintada
+    pelos vasos) - isso que torna o numero comparavel entre imagens de
+    tamanhos/ampliacoes diferentes, e com a literatura. Sempre em mm2,
+    convertendo a partir da unidade de calibracao configurada, pra o numero
+    nao depender de ter calibrado em um, mm ou nm. Sem calibracao (ou unidade
+    nao reconhecida, ja que a unidade e um campo livre) nao da pra converter
+    pixel em area real, entao retorna None em vez de arriscar um numero
+    errado."""
+    has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
+    if not has_calibration:
+        return None
+    mm_per_unit = _UNIT_TO_MM.get(unit.strip().lower())
+    if mm_per_unit is None:
+        return None
+    area_mm2 = area_total_img_px * (unit_per_pixel ** 2) * (mm_per_unit ** 2)
+    if area_mm2 <= 0:
+        return None
+    return count / area_mm2
+
 
 @dataclass(frozen=True)
 class EllipseMinorAxisResult:
@@ -244,7 +271,7 @@ def build_summary_row(
     ellipse_by_label,
     area_total_vasos,
     area_total_img,
-    freq_vaso_50pct,
+    freq_vaso_50pct_count,
     total_vasos_count,
     unit="",
     unit_per_pixel=0.0,
@@ -267,13 +294,20 @@ def build_summary_row(
     fracao_area_vasos = area_total_vasos / area_total_img
     has_calibration = unit and unit_per_pixel and unit_per_pixel > 0
 
+    # "Frequencia de vasos" e densidade (vasos/mm2 de area total da imagem),
+    # nao contagem bruta - ver vessel_frequency_per_mm2. A contagem bruta de
+    # vasos continua disponivel em "quantidade_celulas" (todos os vasos,
+    # inteiros ou nao).
+    freq_vaso_50pct = vessel_frequency_per_mm2(freq_vaso_50pct_count, area_total_img, unit, unit_per_pixel)
+    freq_vaso_inteiros = vessel_frequency_per_mm2(len(props_inteiros), area_total_img, unit, unit_per_pixel)
+
     return {
         "imagem": filename,
         "quantidade_celulas": total_vasos_count,
         "pixels_pintados": int(area_total_vasos),
         "percentual_area_pintada": float(round(fracao_area_vasos * 100, 2)),
-        "freq_vaso_50pct": freq_vaso_50pct,
-        "freq_vaso_inteiros": len(props_inteiros),
+        "freq_vaso_50pct": round(freq_vaso_50pct, 2) if freq_vaso_50pct is not None else None,
+        "freq_vaso_inteiros": round(freq_vaso_inteiros, 2) if freq_vaso_inteiros is not None else None,
         "media_area_px": round(float(media_area), 2),
         "media_diametro_px": round(float(media_diametro), 2),
         "media_diametro_cruzado_px": round(float(media_diametro_cruzado), 2),

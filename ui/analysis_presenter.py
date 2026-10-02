@@ -105,9 +105,12 @@ class AnalysisPresenterMixin:
         "imagem": "Imagem",
         "id_celula": "Id vaso",
         "quantidade_celulas": "Quantidade vasos",
-        "percentual_area_pintada": "Area pintada %",
-        "freq_vaso_50pct": "Frequencia vasos 50%",
-        "freq_vaso_inteiros": "Frequencia vasos inteiros",
+        "percentual_area_pintada": "Area ocupada por vaso (%)",
+        # Densidade (vasos/mm2 de area total da imagem - padrao "vessel
+        # frequency" da anatomia da madeira), nao contagem bruta; por isso
+        # some sem calibracao (cal_only, abaixo) em vez de mostrar vazio.
+        "freq_vaso_50pct": "Frequencia vasos 50% (vasos/mm²)",
+        "freq_vaso_inteiros": "Frequencia vasos inteiros (vasos/mm²)",
     }
 
     def _csv_column_label(self, key, unit_symbol):
@@ -116,7 +119,7 @@ class AnalysisPresenterMixin:
                 "area_calibrada": f"Area ({unit_symbol}²)",
                 "diametro_elipse_menor_calibrado": f"Diametro menor ({unit_symbol})",
                 "diametro_cruzado_calibrado": f"Diametro cruzado ({unit_symbol})",
-                "media_area_calibrada": f"Area media ({unit_symbol}²)",
+                "media_area_calibrada": f"Area media dos vasos ({unit_symbol}²)",
                 # "media_diametro_calibrado" e a media do eixo MENOR (mesmo
                 # criterio da coluna por vaso "Diametro menor" acima) - o
                 # rotulo deixa isso explicito agora que existe tambem a
@@ -149,6 +152,10 @@ class AnalysisPresenterMixin:
         cal_only = {
             "area_calibrada", "diametro_elipse_menor_calibrado", "diametro_cruzado_calibrado",
             "media_area_calibrada", "media_diametro_calibrado", "media_diametro_cruzado_calibrado",
+            # Densidade por mm2 - sem calibracao nao da pra converter pixel
+            # em area real, entao o valor vem None do backend e a coluna
+            # inteira some (em vez de mostrar uma coluna vazia).
+            "freq_vaso_50pct", "freq_vaso_inteiros",
         }
         return [
             i for i, h in enumerate(headers)
