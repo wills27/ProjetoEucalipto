@@ -35,6 +35,26 @@ class ProjectPresenterMixin:
             unit_per_pixel = 0.0
         return unit, unit_per_pixel
 
+    def ensure_calibration(self, silent=False):
+        """As medidas do CSV (cell_measurements.csv/cell_counts.csv) so saem
+        em unidade calibrada - sem calibracao o arquivo sairia so com
+        imagem/id_vaso/contagens, sem nenhum valor de area/diametro. Por
+        isso "Gerar resultados" exige calibracao definida antes de rodar.
+        'silent' evita o popup quando a chamada e automatica (ex: recalculo
+        depois de editar uma mascara) em vez de um clique direto do usuario."""
+        _, unit_per_pixel = self.calibration()
+        if unit_per_pixel > 0:
+            return True
+        if not silent:
+            QMessageBox.information(
+                self,
+                "Calibracao necessaria",
+                "Defina a calibracao do projeto antes de gerar resultados "
+                "(botao \"Calibrar\"). Sem calibracao, o CSV de medidas sairia "
+                "sem nenhum valor de area/diametro.",
+            )
+        return False
+
     def calibration_text(self):
         unit, unit_per_pixel = self.calibration()
         if unit_per_pixel <= 0:

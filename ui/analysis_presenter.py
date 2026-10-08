@@ -124,16 +124,16 @@ class AnalysisPresenterMixin:
     def _csv_column_label(self, key, unit_symbol):
         if unit_symbol:
             unit_labels = {
-                "area_calibrada": f"Area ({unit_symbol}²)",
-                "diametro_menor_calibrado": f"Diametro menor ({unit_symbol})",
-                "diametro_cruzado_calibrado": f"Diametro cruzado ({unit_symbol})",
-                "media_area_calibrada": f"Area media dos vasos ({unit_symbol}²)",
-                # "media_diametro_menor_calibrado" e a media do eixo MENOR
-                # (mesmo criterio da coluna por vaso "Diametro menor" acima) -
-                # o rotulo deixa isso explicito agora que existe tambem a
+                "area": f"Area ({unit_symbol}²)",
+                "diametro_menor": f"Diametro menor ({unit_symbol})",
+                "diametro_cruzado": f"Diametro cruzado ({unit_symbol})",
+                "media_area": f"Area media dos vasos ({unit_symbol}²)",
+                # "media_diametro_menor" e a media do eixo MENOR (mesmo
+                # criterio da coluna por vaso "Diametro menor" acima) - o
+                # rotulo deixa isso explicito agora que existe tambem a
                 # media do diametro cruzado, logo abaixo.
-                "media_diametro_menor_calibrado": f"Diametro menor ({unit_symbol})",
-                "media_diametro_cruzado_calibrado": f"Diametro cruzado medio ({unit_symbol})",
+                "media_diametro_menor": f"Diametro menor ({unit_symbol})",
+                "media_diametro_cruzado": f"Diametro cruzado medio ({unit_symbol})",
             }
             if key in unit_labels:
                 return unit_labels[key]
@@ -150,6 +150,9 @@ class AnalysisPresenterMixin:
 
     def _csv_visible_columns(self, headers, has_calibration):
         always_hidden = {
+            # Nomes antigos (px/"_calibrado"): o CSV atual nao os grava mais,
+            # mas um arquivo gerado antes dessa mudanca ainda pode te-los até
+            # ser regerado - continuam escondidos aqui so por seguranca.
             "area_px", "diametro_menor_px", "diametro_cruzado_px",
             "media_area_px", "media_diametro_menor_px", "media_diametro_cruzado_px", "pixels_area_ocupada",
             # A unidade agora aparece embutida no nome de cada coluna
@@ -157,8 +160,8 @@ class AnalysisPresenterMixin:
             "unidade",
         }
         cal_only = {
-            "area_calibrada", "diametro_menor_calibrado", "diametro_cruzado_calibrado",
-            "media_area_calibrada", "media_diametro_menor_calibrado", "media_diametro_cruzado_calibrado",
+            "area", "diametro_menor", "diametro_cruzado",
+            "media_area", "media_diametro_menor", "media_diametro_cruzado",
             # Densidade por mm2 - sem calibracao nao da pra converter pixel
             # em area real, entao o valor vem None do backend e a coluna
             # inteira some (em vez de mostrar uma coluna vazia).

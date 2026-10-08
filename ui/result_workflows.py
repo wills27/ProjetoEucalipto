@@ -42,6 +42,8 @@ class ResultWorkflowMixin:
             return
         if not self.ensure_active_model():
             return
+        if not self.ensure_calibration():
+            return
         self.clear_analysis_caches()
         self.save_prediction_config()
         input_dir = active_image_set_dir(self.config)
@@ -120,6 +122,8 @@ class ResultWorkflowMixin:
             self.show_process_in_progress()
             return
         if not self.ensure_active_model():
+            return
+        if not self.ensure_calibration():
             return
         self.clear_analysis_caches()
         self.save_prediction_config()
@@ -264,6 +268,14 @@ class ResultWorkflowMixin:
                     self,
                     "Recalcular metrica",
                     "Nenhuma imagem selecionada tem mascara de predicao para recalcular.",
+                )
+            return False
+
+        if not self.ensure_calibration(silent=not interactive):
+            if not interactive and hasattr(self, "result_progress_label"):
+                self.result_progress_label.setText(
+                    f"Mascara salva para {', '.join(valid_stems)}, mas o projeto nao tem calibracao "
+                    "definida. Medidas nao foram recalculadas."
                 )
             return False
 
