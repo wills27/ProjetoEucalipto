@@ -1,6 +1,7 @@
 cellpose
 matplotlib
 numpy
+openpyxl
 pandas
 Pillow
 PyInstaller

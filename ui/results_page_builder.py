@@ -1,6 +1,7 @@
 ﻿from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -85,7 +86,7 @@ class ResultsPageBuilderMixin:
         view_results_button = self.add_button(predict_actions, "Visualizar resultados", self.open_results_viewer)
         view_results_button.setObjectName("accent")
         self.export_results_button = self.add_button(
-            predict_actions, "Exportar CSVs", self.export_result_csvs
+            predict_actions, "Exportar resultados", self.export_result_csvs
         )
         self.export_results_button.hide()
         predict_actions.addStretch()
@@ -154,6 +155,10 @@ class ResultsPageBuilderMixin:
             )
             self.view_buttons[mode] = button
         mode_layout.addStretch()
+        self.vessel_colorful_checkbox = QCheckBox("Colorido")
+        self.vessel_colorful_checkbox.setChecked(True)
+        self.vessel_colorful_checkbox.toggled.connect(self.set_vessel_colorful)
+        mode_layout.addWidget(self.vessel_colorful_checkbox)
         center_layout.addLayout(mode_layout)
         self.preview_label = AnnotationPreviewLabel(
             None,
@@ -168,8 +173,8 @@ class ResultsPageBuilderMixin:
         self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_layout.addWidget(self.preview_label, 1)
         edit_mask_layout = QHBoxLayout()
-        edit_mask_layout.addStretch()
         self.add_button(edit_mask_layout, "Exportar imagem", self.export_context_result_images)
         self.add_button(edit_mask_layout, "Editar mascara", self.open_selected_result_mask_editor)
+        edit_mask_layout.addStretch()
         center_layout.addLayout(edit_mask_layout)
         layout.addWidget(center, 1)

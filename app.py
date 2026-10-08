@@ -72,6 +72,7 @@ class CellposeWindow(
         self.training_dataset_train_count = None
         self.training_dataset_val_count = None
         self.current_view_mode = "overlay"
+        self.vessel_colorful = True
         self.nav_buttons = []
         self.metric_labels = {}
         self.analysis_metric_labels = {}

@@ -10,7 +10,12 @@ from services.cell_measurements import (
 )
 
 
-def vessel_label_color(label_value):
+VESSEL_MONO_COLOR = (230, 92, 58)
+
+
+def vessel_label_color(label_value, mono=False):
+    if mono:
+        return VESSEL_MONO_COLOR
     palette = [
         (230, 92, 58),
         (22, 107, 92),
@@ -45,7 +50,7 @@ def overlay_mask_on_image(image, mask, color, alpha):
     return Image.alpha_composite(image.convert("RGBA"), color_image).convert("RGB")
 
 
-def overlay_colored_mask_on_image(image, mask, selected_label=None, alpha=118):
+def overlay_colored_mask_on_image(image, mask, selected_label=None, alpha=118, mono=False):
     mask = np.asarray(mask)
     if mask.ndim != 2 or mask.max() == 0:
         return image.convert("RGB")
@@ -58,7 +63,7 @@ def overlay_colored_mask_on_image(image, mask, selected_label=None, alpha=118):
     positive = mask > 0
     blend = alpha / 255.0
 
-    palette = np.array([vessel_label_color(i + 1) for i in range(8)], dtype=np.float32)
+    palette = np.array([vessel_label_color(i + 1, mono=mono) for i in range(8)], dtype=np.float32)
     label_indices = (mask.astype(np.int64) - 1) % 8
     colors = palette[label_indices]
     base[positive] = base[positive] * (1 - blend) + colors[positive] * blend
@@ -105,8 +110,8 @@ def draw_mask_ids(image, mask, selected_label=None, label_texts=None, centroids=
         )
 
 
-def render_colored_id_overlay(image, mask, selected_label=None, label_texts=None, centroids=None):
-    image = overlay_colored_mask_on_image(image, mask, selected_label=selected_label)
+def render_colored_id_overlay(image, mask, selected_label=None, label_texts=None, centroids=None, mono=False):
+    image = overlay_colored_mask_on_image(image, mask, selected_label=selected_label, mono=mono)
     draw_mask_ids(image, mask, selected_label=selected_label, label_texts=label_texts, centroids=centroids)
     return image
 
@@ -146,7 +151,7 @@ def draw_empty_prediction_banner(image, text="Predicao concluida - nenhum vaso d
     return image
 
 
-def render_measurement_overlay(base_image, mask, mode):
+def render_measurement_overlay(base_image, mask, mode, mono=False):
     if mode == "overlay_50pct":
         filtered = filtrar_celulas_borda_proporcional(
             mask,
@@ -154,10 +159,10 @@ def render_measurement_overlay(base_image, mask, mode):
             max_borda_diametro_ratio=1.5,
             borda_expandida=8,
         )
-        return overlay_colored_mask_on_image(base_image, filtered)
+        return overlay_colored_mask_on_image(base_image, filtered, mono=mono)
 
     filtered = build_mask_inteiros(mask)
-    image = overlay_colored_mask_on_image(base_image, filtered)
+    image = overlay_colored_mask_on_image(base_image, filtered, mono=mono)
     if mode == "overlay_diametro":
         image = draw_minor_axes(image, filtered)
     elif mode == "overlay_diametro_cruzado":

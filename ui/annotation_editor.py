@@ -135,9 +135,7 @@ class AnnotationEditorDialog(QDialog):
         clear_button = QPushButton("Apagar tudo")
         clear_button.setAutoDefault(False)
         clear_button.clicked.connect(clear_callback)
-        undo_button = QPushButton("Desfazer")
-        undo_button.setAutoDefault(False)
-        undo_button.clicked.connect(undo_callback)
+        self.undo_callback = undo_callback
         close_button = QPushButton("Fechar")
         close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
@@ -145,12 +143,21 @@ class AnnotationEditorDialog(QDialog):
         self.busy_progress.setRange(0, 0)
         self.busy_progress.setTextVisible(False)
         self.busy_progress.setVisible(False)
-        self.busy_controls.extend([predict_button, save_button, clear_button, undo_button, close_button])
+        self.busy_controls.extend([predict_button, save_button, clear_button, close_button])
         tools_layout.addWidget(predict_button)
         tools_layout.addWidget(save_button)
         tools_layout.addWidget(clear_button)
-        tools_layout.addWidget(undo_button)
         tools_layout.addWidget(self.busy_progress)
+        hints_label = QLabel(
+            "Botao direito do mouse: desenhar mascara\n"
+            "Botao esquerdo do mouse: mover a imagem\n"
+            "Ctrl + botao esquerdo: apagar vaso\n"
+            "Roda do mouse: zoom\n"
+            "Ctrl+Z: desfazer | Tecla X: alternar Original/Overlay"
+        )
+        hints_label.setObjectName("hint")
+        hints_label.setWordWrap(True)
+        tools_layout.addWidget(hints_label)
         tools_layout.addStretch()
         tools_layout.addWidget(close_button)
         layout.addWidget(tools_box, 0)
@@ -179,6 +186,11 @@ class AnnotationEditorDialog(QDialog):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_X and event.modifiers() == Qt.KeyboardModifier.NoModifier:
             self.toggle_overlay()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            if not self.is_busy:
+                self.undo_callback()
             event.accept()
             return
         super().keyPressEvent(event)

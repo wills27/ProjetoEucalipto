@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = []
 hiddenimports += collect_submodules("cellpose")
 hiddenimports += collect_submodules("skimage.measure")
+hiddenimports += collect_submodules("openpyxl")
 
 
 a = Analysis(

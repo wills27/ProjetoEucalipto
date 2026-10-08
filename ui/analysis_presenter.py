@@ -8,6 +8,14 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QTableWidgetItem
 
 from services.csv_files import load_semicolon_csv as read_semicolon_csv
+from services.csv_labels import (
+    CSV_FIXED_LABELS,
+    csv_column_label,
+    csv_has_calibration,
+    csv_unit_symbol,
+    csv_visible_columns,
+    default_column_label,
+)
 from services.image_arrays import normalize_array
 from services.metrics import parse_decimal, read_metrics
 from services.overlay_rendering import (
@@ -90,88 +98,26 @@ class AnalysisPresenterMixin:
         table.horizontalHeader().setStretchLastSection(True)
         table.setSortingEnabled(True)
 
+    # Logica pura (sem Qt) mora em services/csv_labels.py, compartilhada com
+    # a exportacao em Excel (services/result_export.py) - estes metodos sao
+    # so wrappers finos pra manter compatibilidade com quem ja chama
+    # self._csv_* (testes, results_viewer_dialog).
+    _CSV_FIXED_LABELS = CSV_FIXED_LABELS
+
     def _csv_has_calibration(self, headers, body):
-        if "unidade" not in headers:
-            return False
-        unit_col = headers.index("unidade")
-        return any(unit_col < len(row) and row[unit_col].strip() for row in body)
+        return csv_has_calibration(headers, body)
 
     def _csv_unit_symbol(self, headers, body):
-        unit_col = headers.index("unidade")
-        raw_unit = next(
-            (row[unit_col].strip() for row in body if unit_col < len(row) and row[unit_col].strip()),
-            "",
-        )
-        # "um" e um placeholder ascii pra microns (sem o simbolo grego) usado
-        # na calibracao — troca so esse caso pelo mu de verdade ao exibir.
-        return "µm" if raw_unit.lower() == "um" else raw_unit
-
-    # Rotulos fixos: primeira letra da primeira palavra maiuscula, resto em
-    # minuscula, palavras separadas por espaco (nunca "_"). "celula" vira
-    # "vaso" em todo lugar pra bater com o resto do app.
-    _CSV_FIXED_LABELS = {
-        "imagem": "Imagem",
-        "id_vaso": "Id vaso",
-        "quantidade_vasos": "Quantidade vasos",
-        "percentual_area_ocupada": "Area ocupada por vaso (%)",
-        # Densidade (vasos/mm2 de area total da imagem - padrao "vessel
-        # frequency" da anatomia da madeira), nao contagem bruta; por isso
-        # some sem calibracao (cal_only, abaixo) em vez de mostrar vazio.
-        "freq_vaso_50pct": "Frequencia vasos 50% (vasos/mm²)",
-        "freq_vaso_inteiros": "Frequencia vasos inteiros (vasos/mm²)",
-    }
+        return csv_unit_symbol(headers, body)
 
     def _csv_column_label(self, key, unit_symbol):
-        if unit_symbol:
-            unit_labels = {
-                "area": f"Area ({unit_symbol}²)",
-                "diametro_menor": f"Diametro menor ({unit_symbol})",
-                "diametro_cruzado": f"Diametro cruzado ({unit_symbol})",
-                "media_area": f"Area media dos vasos ({unit_symbol}²)",
-                # "media_diametro_menor" e a media do eixo MENOR (mesmo
-                # criterio da coluna por vaso "Diametro menor" acima) - o
-                # rotulo deixa isso explicito agora que existe tambem a
-                # media do diametro cruzado, logo abaixo.
-                "media_diametro_menor": f"Diametro menor ({unit_symbol})",
-                "media_diametro_cruzado": f"Diametro cruzado medio ({unit_symbol})",
-            }
-            if key in unit_labels:
-                return unit_labels[key]
-        if key in self._CSV_FIXED_LABELS:
-            return self._CSV_FIXED_LABELS[key]
-        return self._default_column_label(key)
+        return csv_column_label(key, unit_symbol)
 
     def _default_column_label(self, key):
-        """Padrao para qualquer coluna sem rotulo customizado acima: troca
-        '_' por espaco e deixa maiuscula so a primeira letra da primeira
-        palavra (o resto minusculo, sem virar Title Case)."""
-        text = key.replace("_", " ").strip()
-        return text[:1].upper() + text[1:] if text else text
+        return default_column_label(key)
 
     def _csv_visible_columns(self, headers, has_calibration):
-        always_hidden = {
-            # Nomes antigos (px/"_calibrado"): o CSV atual nao os grava mais,
-            # mas um arquivo gerado antes dessa mudanca ainda pode te-los até
-            # ser regerado - continuam escondidos aqui so por seguranca.
-            "area_px", "diametro_menor_px", "diametro_cruzado_px",
-            "media_area_px", "media_diametro_menor_px", "media_diametro_cruzado_px", "pixels_area_ocupada",
-            # A unidade agora aparece embutida no nome de cada coluna
-            # calibrada (ex: "Area (µm²)"), entao a coluna solta some.
-            "unidade",
-        }
-        cal_only = {
-            "area", "diametro_menor", "diametro_cruzado",
-            "media_area", "media_diametro_menor", "media_diametro_cruzado",
-            # Densidade por mm2 - sem calibracao nao da pra converter pixel
-            # em area real, entao o valor vem None do backend e a coluna
-            # inteira some (em vez de mostrar uma coluna vazia).
-            "freq_vaso_50pct", "freq_vaso_inteiros",
-        }
-        return [
-            i for i, h in enumerate(headers)
-            if h not in always_hidden
-            and not (not has_calibration and h in cal_only)
-        ]
+        return csv_visible_columns(headers, has_calibration)
 
     def show_analysis_image(self, image_stem):
         if not image_stem:
@@ -235,7 +181,9 @@ class AnalysisPresenterMixin:
             pred_path = predictions_dir(self.config) / f"{stem}_pred_masks.tif"
             if not pred_path.exists():
                 return None
-            return "render", stem, mode, image_key, self.cache_key("mask", pred_path)
+            # O modo de cor (colorido/monocromatico) entra na chave pra um
+            # toggle refletir na hora, sem precisar invalidar o cache inteiro.
+            return "render", stem, mode, image_key, self.cache_key("mask", pred_path), self.vessel_colorful
         return None
 
     def set_analysis_preview_pixmap(self, stem, mode, image):
@@ -291,14 +239,23 @@ class AnalysisPresenterMixin:
             # processada, dando a falsa impressao de que nada aconteceu.
             return draw_empty_prediction_banner(base_image)
 
+        mono = not self.vessel_colorful
         if mode == "overlay":
             # Mesma fonte (mascara atual + numeracao sequencial) usada pelo
             # dialogo "Visualizar resultados", pra nunca mostrar uma imagem
             # diferente entre as duas telas.
             label_to_cell_id, centroids = build_label_index(mask)
-            return render_id_overlay(base_image, mask, label_texts=label_to_cell_id, centroids=centroids)
+            return render_id_overlay(
+                base_image, mask, label_texts=label_to_cell_id, centroids=centroids, mono=mono
+            )
 
-        return render_measurement_mask_overlay(base_image, mask, mode)
+        return render_measurement_mask_overlay(base_image, mask, mode, mono=mono)
+
+    def set_vessel_colorful(self, colorful):
+        self.vessel_colorful = bool(colorful)
+        stem = self.current_result_image_stem() if hasattr(self, "result_images_table") else None
+        if stem:
+            self.show_analysis_image(stem)
 
     def load_image_as_rgb(self, path):
         cache_key = self.cache_key("image", path)

@@ -1,6 +1,3 @@
-from pathlib import Path
-import shutil
-
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
@@ -8,6 +5,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from services.csv_files import remove_rows_from_csv as remove_csv_rows
 from services.dataset_manifest import update_plan_entry_group
 from services.overlay_rendering import transparent_overlay_from_mask as render_transparent_overlay
+from services.result_export import export_results_xlsx
 from services.paths import (
     cell_counts_csv_path,
     cell_measurements_csv_path,
@@ -406,41 +404,38 @@ class ResultActionsMixin:
         self.export_results_button.setVisible(bool(self.results_csv_paths()))
 
     def export_result_csvs(self):
-        sources = self.results_csv_paths()
-        if not sources:
+        if not self.results_csv_paths():
             QMessageBox.information(
                 self,
                 "Exportar resultados",
-                "Nenhum CSV de resultados encontrado. Gere os resultados primeiro.",
+                "Nenhum resultado encontrado. Gere os resultados primeiro.",
             )
             return
 
-        folder = QFileDialog.getExistingDirectory(self, "Exportar CSVs de resultados")
-        if not folder:
+        file_name, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Exportar resultados",
+            "resultados.xlsx",
+            "Excel (*.xlsx)",
+        )
+        if not file_name:
             return
+        if not file_name.lower().endswith(".xlsx"):
+            file_name += ".xlsx"
 
-        exported = []
-        errors = []
-        for src in sources:
-            try:
-                shutil.copy2(src, Path(folder) / src.name)
-                exported.append(src.name)
-            except OSError as error:
-                errors.append(f"{src.name}: {error}")
-
-        if exported:
-            self.append_log(
-                f"\n>>> Exportar CSVs de resultados\n"
-                f"Destino: {folder}\n"
-                f"Arquivos: {', '.join(exported)}\n"
+        try:
+            export_results_xlsx(
+                cell_counts_csv_path(self.config),
+                cell_measurements_csv_path(self.config),
+                file_name,
             )
-        if errors:
+        except OSError as error:
             self.show_error(
                 "Exportar resultados",
-                f"{len(errors)} arquivo(s) nao puderam ser exportados.",
-                "\n".join(errors),
+                "Nao foi possivel exportar os resultados.",
+                str(error),
             )
-        else:
-            QMessageBox.information(
-                self, "Exportar resultados", f"{len(exported)} arquivo(s) exportado(s) para:\n{folder}"
-            )
+            return
+
+        self.append_log(f"\n>>> Exportar resultados\nArquivo: {file_name}\n")
+        QMessageBox.information(self, "Exportar resultados", f"Resultados exportados para:\n{file_name}")
