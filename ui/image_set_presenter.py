@@ -20,7 +20,9 @@ from services.paths import (
     is_pending_image_set,
     list_image_sets,
     move_image_set_outputs,
+    name_collides,
     pending_import_dir,
+    sanitize_entry_name,
 )
 from services.prediction_import import available_import_destination
 
@@ -115,11 +117,11 @@ class ImageSetPresenterMixin:
         name, ok = QInputDialog.getText(self, "Novo conjunto de imagens", "Nome do conjunto:")
         if not ok:
             return
-        name = name.strip().replace(" ", "_")
-        if not name or name == DEFAULT_IMAGE_SET:
+        name = sanitize_entry_name(name)
+        if not name or name == DEFAULT_IMAGE_SET or name == PENDING_IMAGE_SET:
             QMessageBox.information(self, "Novo conjunto de imagens", "Nome invalido.")
             return
-        if name in list_image_sets(self.config):
+        if name_collides(list_image_sets(self.config), name):
             QMessageBox.information(self, "Novo conjunto de imagens", "Ja existe um conjunto com esse nome.")
             return
 

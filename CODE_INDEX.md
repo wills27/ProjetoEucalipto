@@ -148,6 +148,22 @@ short so navigation costs fewer tokens.
   `ui/annotation_editor.py`, `ui/mask_edit_target.py`.
 - Change measurement output: `services/cell_measurements.py`,
   `scripts/measure_cells.py`, and result/analysis presenters.
+- Rename/add a CSV column (cell_measurements.csv/cell_counts.csv): change
+  `MEASUREMENT_COLUMNS`/`SUMMARY_COLUMNS` and the row builders in
+  `services/cell_measurements.py` together with the label mappings in
+  `ui/analysis_presenter.py` (`_CSV_FIXED_LABELS`, `_csv_column_label`,
+  `_csv_visible_columns`) and the raw-key lookups in
+  `ui/dialogs/results_viewer_dialog.py` — these three must stay in sync
+  or the CSV and the "Visualizar resultados" screen drift apart again.
+
+## Tests
+
+- `tests/`: pytest suite, targets `services/` (pure behavior, no Qt needed).
+  Run with `pytest` from the project root (`pip install -r requirements-dev.txt`
+  first). `services/paths.py` owns name sanitization (`sanitize_entry_name`)
+  and case-insensitive duplicate checks (`name_collides`) used when creating
+  projects/image sets, since Windows (NTFS) is case-insensitive but Python
+  string comparisons are not.
 
 ## Large Files To Open Last
 

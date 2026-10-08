@@ -18,7 +18,9 @@ from services.paths import (
     delete_project as delete_project_folder,
     ensure_project_structure,
     list_projects,
+    name_collides,
     projects_dir,
+    sanitize_entry_name,
 )
 from ui.dialogs.calibration_dialog import CalibrationDialog
 
@@ -82,8 +84,12 @@ class ProjectPresenterMixin:
         name, ok = QInputDialog.getText(self, "Criar projeto", "Nome do projeto:")
         if not ok:
             return
-        name = name.strip().replace(" ", "_")
+        name = sanitize_entry_name(name)
         if not name:
+            QMessageBox.information(self, "Criar projeto", "Nome invalido.")
+            return
+        if name_collides(list_projects(self.config), name):
+            QMessageBox.information(self, "Criar projeto", "Ja existe um projeto com esse nome.")
             return
         self.discard_pending_image_set_if_active()
         self.reset_project_dependent_state()

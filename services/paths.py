@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -9,6 +10,40 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = PROJECT_DIR / "scripts"
 APP_NAME = "CellposeLineofCode"
 LEGACY_CONFIG_PATH = PROJECT_DIR / "app_config.json"
+
+
+_INVALID_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_WINDOWS_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *{f"COM{i}" for i in range(1, 10)},
+    *{f"LPT{i}" for i in range(1, 10)},
+}
+
+
+def sanitize_entry_name(raw_name):
+    """Normaliza um nome digitado pelo usuario (projeto ou conjunto de imagens)
+    para algo seguro como nome de pasta unico no Windows (e compativel com
+    outros SOs): sem separadores de caminho, sem caracteres reservados, sem
+    pontos/espacos nas pontas (o Windows os descarta silenciosamente, o que
+    faria 'Nome.' e 'Nome' colidirem na mesma pasta sem avisar ninguem).
+
+    Retorna "" se o nome digitado nao sobrar com nada valido."""
+    name = str(raw_name or "").strip().replace(" ", "_")
+    name = _INVALID_NAME_CHARS.sub("_", name)
+    name = re.sub(r"_+", "_", name).strip("._")
+    if not name or name in {".", ".."} or name.upper() in _RESERVED_WINDOWS_NAMES:
+        return ""
+    return name
+
+
+def name_collides(existing_names, candidate):
+    """Compara 'candidate' com 'existing_names' ignorando maiusculas/minusculas,
+    pois o NTFS (Windows) e case-insensitive mas case-preserving: um 'in' comum
+    em Python deixaria passar 'Teste' quando ja existe 'teste', e o mkdir
+    acabaria reaproveitando a pasta fisica existente em vez de avisar o
+    usuario que o nome ja esta em uso."""
+    candidate_lower = candidate.lower()
+    return any(existing.lower() == candidate_lower for existing in existing_names)
 
 
 def app_config_dir():

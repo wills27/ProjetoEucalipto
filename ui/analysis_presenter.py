@@ -70,9 +70,17 @@ class AnalysisPresenterMixin:
         has_cal = self._csv_has_calibration(headers, body)
         unit_symbol = self._csv_unit_symbol(headers, body) if has_cal else ""
         visible = self._csv_visible_columns(headers, has_cal)
-        filtered_headers = [self._csv_column_label(headers[i], unit_symbol) for i in visible]
-        table.setColumnCount(len(filtered_headers))
-        table.setHorizontalHeaderLabels(filtered_headers)
+        table.setColumnCount(len(visible))
+        for col_pos, col_idx in enumerate(visible):
+            raw_key = headers[col_idx]
+            header_item = QTableWidgetItem(self._csv_column_label(raw_key, unit_symbol))
+            # Guarda a chave crua da coluna (ex: "id_vaso") no item do
+            # cabecalho - o texto exibido e o rotulo amigavel, que nao bate
+            # mais com a chave assim que tem espaco/unidade embutida, mas
+            # quem precisa achar uma coluna especifica (ex: sincronizar
+            # selecao com o overlay) precisa da chave, nao do texto.
+            header_item.setData(Qt.ItemDataRole.UserRole, raw_key)
+            table.setHorizontalHeaderItem(col_pos, header_item)
         table.setRowCount(len(body))
         for row_index, row in enumerate(body):
             for col_pos, col_idx in enumerate(visible):
@@ -103,9 +111,9 @@ class AnalysisPresenterMixin:
     # "vaso" em todo lugar pra bater com o resto do app.
     _CSV_FIXED_LABELS = {
         "imagem": "Imagem",
-        "id_celula": "Id vaso",
-        "quantidade_celulas": "Quantidade vasos",
-        "percentual_area_pintada": "Area ocupada por vaso (%)",
+        "id_vaso": "Id vaso",
+        "quantidade_vasos": "Quantidade vasos",
+        "percentual_area_ocupada": "Area ocupada por vaso (%)",
         # Densidade (vasos/mm2 de area total da imagem - padrao "vessel
         # frequency" da anatomia da madeira), nao contagem bruta; por isso
         # some sem calibracao (cal_only, abaixo) em vez de mostrar vazio.
@@ -117,14 +125,14 @@ class AnalysisPresenterMixin:
         if unit_symbol:
             unit_labels = {
                 "area_calibrada": f"Area ({unit_symbol}²)",
-                "diametro_elipse_menor_calibrado": f"Diametro menor ({unit_symbol})",
+                "diametro_menor_calibrado": f"Diametro menor ({unit_symbol})",
                 "diametro_cruzado_calibrado": f"Diametro cruzado ({unit_symbol})",
                 "media_area_calibrada": f"Area media dos vasos ({unit_symbol}²)",
-                # "media_diametro_calibrado" e a media do eixo MENOR (mesmo
-                # criterio da coluna por vaso "Diametro menor" acima) - o
-                # rotulo deixa isso explicito agora que existe tambem a
+                # "media_diametro_menor_calibrado" e a media do eixo MENOR
+                # (mesmo criterio da coluna por vaso "Diametro menor" acima) -
+                # o rotulo deixa isso explicito agora que existe tambem a
                 # media do diametro cruzado, logo abaixo.
-                "media_diametro_calibrado": f"Diametro menor ({unit_symbol})",
+                "media_diametro_menor_calibrado": f"Diametro menor ({unit_symbol})",
                 "media_diametro_cruzado_calibrado": f"Diametro cruzado medio ({unit_symbol})",
             }
             if key in unit_labels:
@@ -142,16 +150,15 @@ class AnalysisPresenterMixin:
 
     def _csv_visible_columns(self, headers, has_calibration):
         always_hidden = {
-            "area_px", "perimetro_px", "diametro_elipse_menor_px", "diametro_cruzado_px",
-            "media_area_px", "media_diametro_px", "media_diametro_cruzado_px", "pixels_pintados",
-            "perimetro_calibrado",
+            "area_px", "diametro_menor_px", "diametro_cruzado_px",
+            "media_area_px", "media_diametro_menor_px", "media_diametro_cruzado_px", "pixels_area_ocupada",
             # A unidade agora aparece embutida no nome de cada coluna
             # calibrada (ex: "Area (µm²)"), entao a coluna solta some.
             "unidade",
         }
         cal_only = {
-            "area_calibrada", "diametro_elipse_menor_calibrado", "diametro_cruzado_calibrado",
-            "media_area_calibrada", "media_diametro_calibrado", "media_diametro_cruzado_calibrado",
+            "area_calibrada", "diametro_menor_calibrado", "diametro_cruzado_calibrado",
+            "media_area_calibrada", "media_diametro_menor_calibrado", "media_diametro_cruzado_calibrado",
             # Densidade por mm2 - sem calibracao nao da pra converter pixel
             # em area real, entao o valor vem None do backend e a coluna
             # inteira some (em vez de mostrar uma coluna vazia).

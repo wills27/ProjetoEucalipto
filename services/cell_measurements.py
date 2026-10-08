@@ -8,28 +8,28 @@ from skimage.measure import regionprops
 
 MEASUREMENT_COLUMNS = [
     "imagem",
-    "id_celula",
+    "id_vaso",
     "area_px",
-    "diametro_elipse_menor_px",
+    "diametro_menor_px",
     "diametro_cruzado_px",
     "area_calibrada",
-    "diametro_elipse_menor_calibrado",
+    "diametro_menor_calibrado",
     "diametro_cruzado_calibrado",
     "unidade",
 ]
 
 SUMMARY_COLUMNS = [
     "imagem",
-    "quantidade_celulas",
+    "quantidade_vasos",
     "freq_vaso_50pct",
     "freq_vaso_inteiros",
-    "pixels_pintados",
-    "percentual_area_pintada",
+    "pixels_area_ocupada",
+    "percentual_area_ocupada",
     "media_area_px",
-    "media_diametro_px",
+    "media_diametro_menor_px",
     "media_diametro_cruzado_px",
     "media_area_calibrada",
-    "media_diametro_calibrado",
+    "media_diametro_menor_calibrado",
     "media_diametro_cruzado_calibrado",
     "unidade",
 ]
@@ -251,12 +251,12 @@ def build_measurement_rows(filename, props_inteiros, ellipse_by_label, unit="", 
         rows.append(
             {
                 "imagem": filename,
-                "id_celula": i,
+                "id_vaso": i,
                 "area_px": round(area_px, 2),
-                "diametro_elipse_menor_px": round(diameter_px, 2) if diameter_px is not None else None,
+                "diametro_menor_px": round(diameter_px, 2) if diameter_px is not None else None,
                 "diametro_cruzado_px": round(diametro_cruzado_px, 2) if diametro_cruzado_px is not None else None,
                 "area_calibrada": round(area_px * (unit_per_pixel ** 2), 2) if has_calibration else None,
-                "diametro_elipse_menor_calibrado": round(diameter_px * unit_per_pixel, 2) if has_calibration and diameter_px is not None else None,
+                "diametro_menor_calibrado": round(diameter_px * unit_per_pixel, 2) if has_calibration and diameter_px is not None else None,
                 "diametro_cruzado_calibrado": round(diametro_cruzado_px * unit_per_pixel, 2) if has_calibration and diametro_cruzado_px is not None else None,
                 "unidade": unit if has_calibration else "",
             }
@@ -296,23 +296,23 @@ def build_summary_row(
 
     # "Frequencia de vasos" e densidade (vasos/mm2 de area total da imagem),
     # nao contagem bruta - ver vessel_frequency_per_mm2. A contagem bruta de
-    # vasos continua disponivel em "quantidade_celulas" (todos os vasos,
+    # vasos continua disponivel em "quantidade_vasos" (todos os vasos,
     # inteiros ou nao).
     freq_vaso_50pct = vessel_frequency_per_mm2(freq_vaso_50pct_count, area_total_img, unit, unit_per_pixel)
     freq_vaso_inteiros = vessel_frequency_per_mm2(len(props_inteiros), area_total_img, unit, unit_per_pixel)
 
     return {
         "imagem": filename,
-        "quantidade_celulas": total_vasos_count,
-        "pixels_pintados": int(area_total_vasos),
-        "percentual_area_pintada": float(round(fracao_area_vasos * 100, 2)),
+        "quantidade_vasos": total_vasos_count,
+        "pixels_area_ocupada": int(area_total_vasos),
+        "percentual_area_ocupada": float(round(fracao_area_vasos * 100, 2)),
         "freq_vaso_50pct": round(freq_vaso_50pct, 2) if freq_vaso_50pct is not None else None,
         "freq_vaso_inteiros": round(freq_vaso_inteiros, 2) if freq_vaso_inteiros is not None else None,
         "media_area_px": round(float(media_area), 2),
-        "media_diametro_px": round(float(media_diametro), 2),
+        "media_diametro_menor_px": round(float(media_diametro), 2),
         "media_diametro_cruzado_px": round(float(media_diametro_cruzado), 2),
         "media_area_calibrada": round(float(media_area * (unit_per_pixel ** 2)), 2) if has_calibration else None,
-        "media_diametro_calibrado": round(float(media_diametro * unit_per_pixel), 2) if has_calibration else None,
+        "media_diametro_menor_calibrado": round(float(media_diametro * unit_per_pixel), 2) if has_calibration else None,
         "media_diametro_cruzado_calibrado": round(float(media_diametro_cruzado * unit_per_pixel), 2) if has_calibration else None,
         "unidade": unit if has_calibration else "",
     }

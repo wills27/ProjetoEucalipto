@@ -260,7 +260,7 @@ class ResultsViewerDialog(QDialog):
             headers = counts_rows[0]
             try:
                 fn_idx = headers.index("imagem")
-                cc_idx = headers.index("quantidade_celulas")
+                cc_idx = headers.index("quantidade_vasos")
                 for row in counts_rows[1:]:
                     if len(row) > max(fn_idx, cc_idx):
                         try:
@@ -325,7 +325,7 @@ class ResultsViewerDialog(QDialog):
         for row in rows[1:]:
             values = {header: row[index] if index < len(row) else "" for index, header in enumerate(headers)}
             filename = values.get("imagem", "")
-            cell_id = values.get("id_celula", "")
+            cell_id = values.get("id_vaso", "")
             if filename and cell_id:
                 self.measurements_by_image.setdefault(filename, {})[cell_id] = values
 
@@ -465,7 +465,9 @@ class ResultsViewerDialog(QDialog):
         for col in range(self.measurements_table.columnCount()):
             header = self.measurements_table.horizontalHeaderItem(col)
             if header:
-                cols[header.text().lower()] = col
+                raw_key = header.data(Qt.ItemDataRole.UserRole)
+                if raw_key:
+                    cols[raw_key] = col
         return cols
 
     def _measurements_row_for_label(self, label_value):
@@ -473,7 +475,7 @@ class ResultsViewerDialog(QDialog):
         if cell_id is None:
             return None, None
         cols = self._measurements_col_index()
-        cell_id_col = cols.get("id_celula")
+        cell_id_col = cols.get("id_vaso")
         if cell_id_col is None:
             return None, None
         for row in range(self.measurements_table.rowCount()):
@@ -489,7 +491,7 @@ class ResultsViewerDialog(QDialog):
 
     def _label_for_measurements_row(self, table_row):
         cols = self._measurements_col_index()
-        cell_id_col = cols.get("id_celula")
+        cell_id_col = cols.get("id_vaso")
         if cell_id_col is None:
             return None
         item = self.measurements_table.item(table_row, cell_id_col)
@@ -682,10 +684,10 @@ class ResultsViewerDialog(QDialog):
             header = table.horizontalHeaderItem(col)
             if header is None:
                 continue
-            text = header.text().lower()
-            if text == "imagem":
+            raw_key = header.data(Qt.ItemDataRole.UserRole)
+            if raw_key == "imagem":
                 filename_col = col
-            elif text == "id_celula":
+            elif raw_key == "id_vaso":
                 cell_id_col = col
         if filename_col is None or cell_id_col is None:
             return

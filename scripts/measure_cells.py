@@ -86,7 +86,7 @@ def main():
         print(f"MEASUREMENTS {filename}", flush=True)
         freq_50pct = summary["freq_vaso_50pct"]
         freq_50pct_text = f"{freq_50pct} vasos/mm2" if freq_50pct is not None else "sem calibracao"
-        print(f"{filename}: {summary['quantidade_celulas']} vasos no total, frequencia 50pct+: {freq_50pct_text}", flush=True)
+        print(f"{filename}: {summary['quantidade_vasos']} vasos no total, frequencia 50pct+: {freq_50pct_text}", flush=True)
         print(f"PROGRESS {index} {total} Medidas: {filename}", flush=True)
 
     if not all_summaries:
