@@ -2,7 +2,7 @@ import json
 import shutil
 from pathlib import Path
 
-from services.paths import CONFIG_PATH, LEGACY_CONFIG_PATH, default_projects_dir
+from services.paths import CONFIG_PATH, LEGACY_CONFIG_PATH, PENDING_IMAGE_SET, default_projects_dir
 
 
 DEFAULT_CONFIG = {
@@ -10,6 +10,7 @@ DEFAULT_CONFIG = {
     "projects_dir": str(default_projects_dir()),
     "active_model": "cpsam_vasos_eucalipto_v1",
     "active_image_set": "__default__",
+    "language": "en",
     "padding_pixels": 64,
     "diameter": 0.0,
     "cellprob_threshold": 0.0,
@@ -51,7 +52,9 @@ def load_config():
     migrate_legacy_config()
     if not CONFIG_PATH.exists():
         save_config(DEFAULT_CONFIG)
-        return with_derived_paths(DEFAULT_CONFIG)
+        startup_config = DEFAULT_CONFIG.copy()
+        startup_config["active_image_set"] = PENDING_IMAGE_SET
+        return with_derived_paths(startup_config)
 
     with CONFIG_PATH.open("r", encoding="utf-8-sig") as config_file:
         config = json.load(config_file)
@@ -65,6 +68,13 @@ def load_config():
     if projects_dir and projects_dir.is_absolute() and not projects_dir.exists():
         merged["projects_dir"] = str(default_projects_dir())
         save_config(merged)
+    # A selecao de conjunto de imagens guardada em disco nao e restaurada no
+    # inicio: o app sempre abre no conjunto temporario (sem nada escolhido),
+    # independente do que foi usado na sessao anterior. O valor salvo
+    # continua intacto no config.json (so o retorno em memoria muda) - se a
+    # selecao de conjuntos for reativada na interface, ela volta a persistir
+    # normalmente a partir da proxima escolha do usuario.
+    merged["active_image_set"] = PENDING_IMAGE_SET
     return with_derived_paths(merged)
 
 

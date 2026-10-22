@@ -5,6 +5,7 @@ from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QHeaderView, QMessageBox, QTableWidgetItem
 
 from services.config import save_config, with_derived_paths
+from services.i18n import tr
 from services.metrics import format_size
 from services.model_service import (
     delete_model,
@@ -76,7 +77,7 @@ class ModelPresenterMixin:
 
     def refresh_prediction(self):
         self.config = with_derived_paths(self.config)
-        self.predict_model_label.setText(self.config["active_model"] or "Nenhum modelo selecionado")
+        self.predict_model_label.setText(self.config["active_model"] or tr("model.none_selected"))
         self.pred_input.setText(relative_to_project(active_image_set_dir(self.config), self.config))
         self.pred_output.setText(self.config["predictions_dir"])
         self.pred_padding.setText(str(self.config["padding_pixels"]))

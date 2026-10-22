@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.config import load_config, save_config, with_derived_paths
+from services.i18n import tr
 from services.model_service import first_model_name
 from services.paths import (
     DEFAULT_IMAGE_SET,
@@ -36,30 +37,28 @@ class ProjectPresenterMixin:
         return unit, unit_per_pixel
 
     def ensure_calibration(self, silent=False):
-        """As medidas do CSV (cell_measurements.csv/cell_counts.csv) so saem
-        em unidade calibrada - sem calibracao o arquivo sairia so com
-        imagem/id_vaso/contagens, sem nenhum valor de area/diametro. Por
-        isso "Gerar resultados" exige calibracao definida antes de rodar.
+        """As medidas do CSV (cell_measurements.csv/cell_counts.csv) só saem
+        em unidade calibrada - sem calibração o arquivo sairia só com
+        imagem/id_vaso/contagens, sem nenhum valor de área/diâmetro. Por
+        isso "Gerar resultados" exige calibração definida antes de rodar.
         'silent' evita o popup quando a chamada e automatica (ex: recalculo
-        depois de editar uma mascara) em vez de um clique direto do usuario."""
+        depois de editar uma máscara) em vez de um clique direto do usuário."""
         _, unit_per_pixel = self.calibration()
         if unit_per_pixel > 0:
             return True
         if not silent:
             QMessageBox.information(
                 self,
-                "Calibracao necessaria",
-                "Defina a calibracao do projeto antes de gerar resultados "
-                "(botao \"Calibrar\"). Sem calibracao, o CSV de medidas sairia "
-                "sem nenhum valor de area/diametro.",
+                tr("calibration.required_title"),
+                tr("calibration.required_text"),
             )
         return False
 
     def calibration_text(self):
         unit, unit_per_pixel = self.calibration()
         if unit_per_pixel <= 0:
-            return "Calibracao: nao definida"
-        return f"Calibracao: {1 / unit_per_pixel:.6g} px/{unit}"
+            return tr("calibration.not_set")
+        return f"{tr('calibration.label_prefix')}: {1 / unit_per_pixel:.6g} px/{unit}"
 
     def refresh_calibration_labels(self):
         text = self.calibration_text()
@@ -106,10 +105,10 @@ class ProjectPresenterMixin:
             return
         name = sanitize_entry_name(name)
         if not name:
-            QMessageBox.information(self, "Criar projeto", "Nome invalido.")
+            QMessageBox.information(self, "Criar projeto", "Nome inválido.")
             return
         if name_collides(list_projects(self.config), name):
-            QMessageBox.information(self, "Criar projeto", "Ja existe um projeto com esse nome.")
+            QMessageBox.information(self, "Criar projeto", "Já existe um projeto com esse nome.")
             return
         self.discard_pending_image_set_if_active()
         self.reset_project_dependent_state()
@@ -125,15 +124,15 @@ class ProjectPresenterMixin:
         project_name = self.config.get("active_project")
         projects = list_projects(self.config)
         if not project_name or project_name not in projects:
-            QMessageBox.information(self, "Deletar projeto", "Nenhum projeto valido selecionado.")
+            QMessageBox.information(self, "Deletar projeto", "Nenhum projeto válido selecionado.")
             return
 
         typed_name, ok = QInputDialog.getText(
             self,
             "Deletar projeto",
             (
-                f"Isso apaga a pasta do projeto '{project_name}' do disco: imagens, mascaras, "
-                "modelos treinados e resultados. Nao pode ser desfeito.\n\n"
+                f"Isso apaga a pasta do projeto '{project_name}' do disco: imagens, máscaras, "
+                "modelos treinados e resultados. Não pode ser desfeito.\n\n"
                 f"Digite '{project_name}' para confirmar:"
             ),
         )
@@ -143,7 +142,7 @@ class ProjectPresenterMixin:
         reply = QMessageBox.question(
             self,
             "Deletar projeto",
-            f"Confirma a exclusao definitiva do projeto '{project_name}'?",
+            f"Confirma a exclusão definitiva do projeto '{project_name}'?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -154,7 +153,7 @@ class ProjectPresenterMixin:
         try:
             delete_project_folder(self.config, project_name)
         except (ValueError, OSError) as error:
-            QMessageBox.warning(self, "Deletar projeto", f"Nao foi possivel deletar o projeto:\n{error}")
+            QMessageBox.warning(self, "Deletar projeto", f"Não foi possível deletar o projeto:\n{error}")
             return
 
         self.reset_project_dependent_state()
@@ -187,7 +186,7 @@ class ProjectPresenterMixin:
             self.dataset_preview_label.setText("Selecione uma imagem.")
             self.dataset_preview_label.setPixmap(QPixmap())
         if hasattr(self, "dataset_preview_info"):
-            self.dataset_preview_info.setText("Imagem e mascara aparecem aqui. Duplo clique para editar a mascara.")
+            self.dataset_preview_info.setText("Imagem e máscara aparecem aqui. Duplo clique para editar a máscara.")
         if hasattr(self, "preview_label"):
             self.preview_label.setText("Selecione uma imagem.")
             self.preview_label.setPixmap(QPixmap())
@@ -269,7 +268,7 @@ class ProjectPresenterMixin:
         self.deferred_startup_steps = [
             ("Dataset", self.refresh_dataset_import),
             ("Resultados", self.refresh_analysis_images),
-            ("Metricas", self.refresh_analysis_metrics),
+            ("Métricas", self.refresh_analysis_metrics),
             ("Tabelas", self.refresh_measurement_tables),
         ]
         self.deferred_startup_total = len(self.deferred_startup_steps)

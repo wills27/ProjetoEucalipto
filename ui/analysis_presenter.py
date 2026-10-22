@@ -8,6 +8,7 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QTableWidgetItem
 
 from services.csv_files import load_semicolon_csv as read_semicolon_csv
+from services.i18n import tr
 from services.csv_labels import (
     CSV_FIXED_LABELS,
     csv_column_label,
@@ -134,13 +135,13 @@ class AnalysisPresenterMixin:
             if image_path is not None and image_path.exists():
                 self.show_image_file(image_path)
             else:
-                self.preview_label.setText("Imagem ou predicao nao encontrada para este modo.")
+                self.preview_label.setText(tr("results.mode_not_found"))
                 self.preview_label.setPixmap(QPixmap())
             return
 
         image_path = self.analysis_image_path(image_stem, self.current_view_mode)
         if image_path is None or not image_path.exists():
-            self.preview_label.setText("Arquivo nao encontrado para este modo.")
+            self.preview_label.setText(tr("results.file_not_found"))
             self.preview_label.setPixmap(QPixmap())
             return
         self.show_image_file(image_path)
@@ -192,6 +193,20 @@ class AnalysisPresenterMixin:
         self.preview_label._display_offset_x = offset_x
         self.preview_label._display_offset_y = offset_y
         self.preview_label.setPixmap(pixmap)
+
+    def update_diameter_preview(self):
+        """Atualiza o circulo de referencia do 'Diametro estimado' (ver
+        AnnotationPreviewLabel._paint_diameter_preview) sempre que o campo
+        muda, pra dar uma nocao visual imediata do tamanho configurado em
+        relacao a imagem mostrada no Visualizador."""
+        if not hasattr(self, "preview_label"):
+            return
+        try:
+            diameter = float(self.pred_diameter.text().strip().replace(",", "."))
+        except (ValueError, AttributeError):
+            diameter = 0.0
+        self.preview_label.diameter_preview_px = diameter if diameter > 0 else None
+        self.preview_label.update()
 
     def analysis_pixmap_data(self, stem, mode, image):
         render_key = self.analysis_render_cache_key(stem, mode)

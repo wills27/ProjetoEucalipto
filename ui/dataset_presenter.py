@@ -134,7 +134,7 @@ class DatasetPresenterMixin:
                     ("uncategorized", "Sem categoria"),
                     ("auto", "Auto"),
                     ("train", "Treino"),
-                    ("val", "Validacao"),
+                    ("val", "Validação"),
                     ("test", "Teste"),
                 ]
                 for key, label in group_options:
@@ -458,7 +458,7 @@ class DatasetPresenterMixin:
         else:
             title = "Deletar imagens"
             summary = f"Deletar {count} imagens?"
-            details = f"Arquivos que serao removidos:\n" + "\n".join(f"- {path.name}" for path in targets)
+            details = f"Arquivos que serão removidos:\n" + "\n".join(f"- {path.name}" for path in targets)
         return title, summary, details
 
     def delete_selected_dataset_pair(self):
@@ -485,7 +485,7 @@ class DatasetPresenterMixin:
             (
                 f"{summary}\n\n"
                 f"{details}\n\n"
-                "Essa acao nao pode ser desfeita."
+                "Essa ação não pode ser desfeita."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

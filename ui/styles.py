@@ -57,6 +57,8 @@ _APP_STYLE_TEMPLATE = f"""
             QLabel#hint {{
                 color: {c.TEXT_SECONDARY};
                 background: transparent;
+                font-size: 9pt;
+                padding-top: 6px;
             }}
             QLabel#sidebarSection {{
                 color: {c.TEXT_SECONDARY};

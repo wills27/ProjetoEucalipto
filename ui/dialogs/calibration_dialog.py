@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.config import save_config
+from services.i18n import tr
 from services.paths import PROJECT_DIR
 from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage_from_pil
 
@@ -29,6 +30,14 @@ from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage
 # outros previews com zoom (ui/annotation_editor.py, ui/dialogs/results_viewer_dialog.py)
 # porque aqui a precisao do clique e o proposito principal da tela.
 MAX_TARGET_DIMENSION = 20000
+
+# Lado maior (em px) do pixmap "rascunho" usado so durante uma rajada de
+# zoom (ver zoom_preview/_flush_pending_zoom_redraw) - reescalar esse
+# rascunho pequeno e barato nao importa o tamanho da imagem original, entao
+# o redesenho acompanha o ritmo dos eventos de wheel mesmo em imagens
+# gigantes. Ao parar a rajada, o ultimo redesenho troca pra fonte em
+# resolucao nativa pra devolver nitidez no resultado parado.
+DRAFT_MAX_DIMENSION = 2000
 
 
 class CalibrationDialog(QDialog):
@@ -43,30 +52,37 @@ class CalibrationDialog(QDialog):
         self.placing_second_point = False
         self.current_preview_image = None
         self.current_preview_pixmap = None
+        self._draft_pixmap = None
         self.zoom = 1.0
-        # Reescalar o pixmap inteiro (set_preview_pixmap) a cada evento de
-        # wheel e caro em zoom alto, e trackpads/mouses de precisao disparam
-        # muitos eventos por "um scroll". Sem throttle, a UI trava
-        # processando cada um, o SO enfileira os seguintes, e quando libera
-        # processa o acumulo de uma vez - parece que o zoom "trava" e depois
-        # precisa de scroll bem maior pra desfazer. Aqui o calculo do zoom
-        # continua rodando a cada evento (barato), mas o redesenho pesado e
-        # agrupado: o primeiro evento de uma rajada redesenha na hora
-        # (feedback imediato) e os seguintes, enquanto durar a rajada, ficam
-        # agrupados num redesenho a cada 30ms em vez de um por evento.
+        # Reescalar o pixmap em resolucao nativa (set_preview_pixmap) a cada
+        # evento de wheel e caro pra imagens grandes, e trackpads/mouses de
+        # precisao disparam muitos eventos por "um scroll". Sem throttle, a
+        # UI trava processando cada um, o SO enfileira os seguintes, e
+        # quando libera processa o acumulo de uma vez - parece que o zoom
+        # "trava" e depois precisa de scroll bem maior pra desfazer. Duas
+        # medidas juntas resolvem isso: (1) o calculo do zoom roda a cada
+        # evento (barato), mas o redesenho pesado e agrupado - o primeiro
+        # evento de uma rajada redesenha na hora (feedback imediato) e os
+        # seguintes, enquanto durar a rajada, ficam agrupados num redesenho
+        # a cada 30ms em vez de um por evento; (2) cada redesenho DURANTE a
+        # rajada usa um pixmap "rascunho" pequeno (ver DRAFT_MAX_DIMENSION) -
+        # reescala-lo e barato nao importa o tamanho da imagem original,
+        # entao o redesenho acompanha o ritmo mesmo em imagens gigantes. Ao
+        # parar a rajada, o ultimo redesenho troca pra fonte em resolucao
+        # nativa pra devolver nitidez no resultado parado.
         self._zoom_redraw_timer = QTimer(self)
         self._zoom_redraw_timer.setInterval(30)
         self._zoom_redraw_timer.timeout.connect(self._flush_pending_zoom_redraw)
         self._zoom_redraw_pending = False
         self._pending_zoom_point = None
         self._pending_zoom_viewport = (None, None)
-        self.setWindowTitle("Calibracao")
+        self.setWindowTitle(tr("calibration.title"))
         self.resize(980, 720)
 
         layout = QHBoxLayout(self)
         layout.setSpacing(12)
 
-        preview_box = window.panel("Imagem de referencia")
+        preview_box = window.panel(tr("calibration.reference_image"))
         preview_layout = QVBoxLayout(preview_box)
         self.preview_label = AnnotationPreviewLabel(
             self.start_drag,
@@ -88,7 +104,7 @@ class CalibrationDialog(QDialog):
         self.preview_label.pan_scroll_area = self.scroll_area
         preview_layout.addWidget(self.scroll_area, 1)
         preview_actions = QHBoxLayout()
-        window.add_button(preview_actions, "Importar Imagem", self.open_external_image)
+        window.add_button(preview_actions, tr("calibration.import_image"), self.open_external_image)
         preview_actions.addStretch()
         self.zoom_percent_label = QLabel("100%")
         self.zoom_percent_label.setObjectName("hint")
@@ -96,7 +112,7 @@ class CalibrationDialog(QDialog):
         preview_layout.addLayout(preview_actions)
         layout.addWidget(preview_box, 1)
 
-        controls_box = window.panel("Escala")
+        controls_box = window.panel(tr("calibration.scale"))
         controls_layout = QVBoxLayout(controls_box)
         self.current_label = QLabel(window.calibration_text())
         self.current_label.setObjectName("hint")
@@ -112,35 +128,31 @@ class CalibrationDialog(QDialog):
         self.real_distance = QLineEdit()
         self.unit_per_pixel = QLineEdit()
         self.unit_per_pixel.setReadOnly(True)
-        form.addWidget(QLabel("Unidade"), 0, 0)
+        form.addWidget(QLabel(tr("calibration.unit")), 0, 0)
         form.addWidget(self.unit_combo, 0, 1)
-        form.addWidget(QLabel("Distancia px"), 1, 0)
+        form.addWidget(QLabel(tr("calibration.pixel_distance")), 1, 0)
         form.addWidget(self.pixel_distance, 1, 1)
-        form.addWidget(QLabel("Distancia real"), 2, 0)
+        form.addWidget(QLabel(tr("calibration.real_distance")), 2, 0)
         form.addWidget(self.real_distance, 2, 1)
-        form.addWidget(QLabel("Px/unidade"), 3, 0)
+        form.addWidget(QLabel(tr("calibration.px_per_unit")), 3, 0)
         form.addWidget(self.unit_per_pixel, 3, 1)
         controls_layout.addLayout(form)
         self.pixel_distance.textChanged.connect(self.update_unit_per_pixel)
         self.real_distance.textChanged.connect(self.update_unit_per_pixel)
 
-        hint = QLabel(
-            "Clique para marcar o primeiro ponto e clique novamente para marcar o segundo "
-            "(Shift trava na horizontal/vertical); arraste um ponto existente para reposiciona-lo, "
-            "ou informe os valores manualmente."
-        )
+        hint = QLabel(tr("calibration.hint"))
         hint.setObjectName("hint")
         hint.setWordWrap(True)
         controls_layout.addWidget(hint)
 
         controls_layout.addStretch()
-        save_button = QPushButton("Salvar calibracao")
+        save_button = QPushButton(tr("calibration.save"))
         save_button.setObjectName("primary")
         save_button.setAutoDefault(False)
         save_button.clicked.connect(self.save_calibration)
         controls_layout.addWidget(save_button)
-        window.add_button(controls_layout, "Limpar calibracao", self.clear_calibration)
-        close_button = QPushButton("Fechar")
+        window.add_button(controls_layout, tr("calibration.clear"), self.clear_calibration)
+        close_button = QPushButton(tr("calibration.close"))
         close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
         controls_layout.addWidget(close_button)
@@ -173,7 +185,7 @@ class CalibrationDialog(QDialog):
             start_dir = str(PROJECT_DIR)
         file_name, _filter = QFileDialog.getOpenFileName(
             self,
-            "Escolher imagem para calibracao",
+            tr("calibration.choose_image"),
             start_dir,
             "Imagens (*.tif *.tiff *.png *.jpg *.jpeg)",
         )
@@ -196,7 +208,7 @@ class CalibrationDialog(QDialog):
 
     def start_drag(self, source_label, x, y):
         if self.image is None:
-            QMessageBox.information(self, "Calibracao", "Abra uma imagem para marcar os pontos.")
+            QMessageBox.information(self, tr("calibration.title"), tr("calibration.open_image_to_mark_points"))
             return
         if len(self.points) == 2 and not self.placing_second_point:
             hit_index = self.hit_test_point(source_label, x, y)
@@ -305,7 +317,7 @@ class CalibrationDialog(QDialog):
 
     def update_preview(self):
         if self.image is None:
-            self.preview_label.setText("Abra uma imagem ou informe a escala manualmente.")
+            self.preview_label.setText(tr("calibration.open_image_or_enter_manually"))
             self.preview_label.setPixmap(QPixmap())
             self.current_preview_image = None
             self.current_preview_pixmap = None
@@ -354,11 +366,11 @@ class CalibrationDialog(QDialog):
             pixel_distance = self.parse_float_field(self.pixel_distance)
             real_distance = self.parse_float_field(self.real_distance)
         except ValueError:
-            QMessageBox.warning(self, "Calibracao", "Informe valores numericos validos.")
+            QMessageBox.warning(self, tr("calibration.title"), tr("calibration.enter_valid_numbers"))
             return
         unit = self.unit_combo.currentText().strip() or "um"
         if unit_per_pixel <= 0:
-            QMessageBox.warning(self, "Calibracao", "Informe uma escala unidade/px maior que zero.")
+            QMessageBox.warning(self, tr("calibration.title"), tr("calibration.enter_scale_above_zero"))
             return
         self.window.config["calibration"] = {
             "unit": unit,
@@ -371,7 +383,7 @@ class CalibrationDialog(QDialog):
         save_config(self.window.config)
         self.window.refresh_all()
         self.current_label.setText(self.window.calibration_text())
-        QMessageBox.information(self, "Calibracao", "Calibracao salva.")
+        QMessageBox.information(self, tr("calibration.title"), tr("calibration.saved"))
 
     def clear_calibration(self):
         self.window.config["calibration"] = {
@@ -418,9 +430,14 @@ class CalibrationDialog(QDialog):
     def _flush_pending_zoom_redraw(self):
         if not self._zoom_redraw_pending:
             self._zoom_redraw_timer.stop()
+            # Rajada terminou: troca o rascunho rapido pela imagem em
+            # resolucao nativa pra devolver nitidez. Mesmo scale/tamanho
+            # exibido de antes (so a fonte do scaled() muda), entao a
+            # posicao de scroll atual continua valida sem precisar recentrar.
+            self.set_preview_pixmap(fast=False)
             return
         self._zoom_redraw_pending = False
-        self.set_preview_pixmap()
+        self.set_preview_pixmap(fast=True)
         point = self._pending_zoom_point
         viewport_x, viewport_y = self._pending_zoom_viewport
         if point is not None and viewport_x is not None and viewport_y is not None:
@@ -434,9 +451,22 @@ class CalibrationDialog(QDialog):
         if qimage is None:
             return
         self.current_preview_pixmap = QPixmap.fromImage(qimage)
+        self._draft_pixmap = self._build_draft_pixmap(self.current_preview_pixmap)
         self.set_preview_pixmap()
 
-    def set_preview_pixmap(self):
+    def _build_draft_pixmap(self, pixmap):
+        longest_side = max(pixmap.width(), pixmap.height())
+        if longest_side <= DRAFT_MAX_DIMENSION:
+            return pixmap
+        draft_scale = DRAFT_MAX_DIMENSION / longest_side
+        return pixmap.scaled(
+            max(1, int(pixmap.width() * draft_scale)),
+            max(1, int(pixmap.height() * draft_scale)),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+
+    def set_preview_pixmap(self, fast=False):
         if self.current_preview_image is None or self.current_preview_pixmap is None:
             return
         width, height = self.current_preview_image.size
@@ -446,7 +476,8 @@ class CalibrationDialog(QDialog):
         scale = min(scale, MAX_TARGET_DIMENSION / max(width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
-        pixmap = self.current_preview_pixmap.scaled(
+        source_pixmap = self._draft_pixmap if (fast and self._draft_pixmap is not None) else self.current_preview_pixmap
+        pixmap = source_pixmap.scaled(
             target_width,
             target_height,
             Qt.AspectRatioMode.KeepAspectRatio,

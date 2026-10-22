@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from controllers.process_runner import ScriptProcessRunner
 from services.config import load_config
+from services.i18n import set_language
 from ui.styles import APP_STYLE
 from ui.annotation_workflow import AnnotationWorkflowMixin
 from ui.dataset_import_presenter import DatasetImportPresenterMixin
@@ -57,6 +58,7 @@ class CellposeWindow(
     def __init__(self):
         super().__init__()
         self.config = load_config()
+        set_language(self.config.get("language", "en"))
         self.process_runner = ScriptProcessRunner(self)
         self.process_runner.output_received.connect(self.process_output_received)
         self.process_runner.finished.connect(self.process_finished)

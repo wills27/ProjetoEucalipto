@@ -28,6 +28,14 @@ from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry, qimage
 
 MAX_TARGET_DIMENSION = 13000
 
+# Lado maior (em px) do pixmap "rascunho" usado so durante uma rajada de
+# zoom (ver zoom_by/_flush_pending_zoom_redraw) - reescalar esse rascunho
+# pequeno e barato nao importa o tamanho da imagem original, entao o
+# redesenho acompanha o ritmo dos eventos de wheel mesmo em imagens
+# gigantes. Ao parar a rajada, o ultimo redesenho troca pra fonte em
+# resolucao nativa pra devolver nitidez no resultado parado.
+DRAFT_MAX_DIMENSION = 2000
+
 # Sobe sempre que o formato de region_values_by_label mudar (ex.: novo campo
 # usado nas contas), pra um cache em disco gravado com o formato antigo ser
 # descartado e recalculado em vez de ser lido com o campo novo faltando.
@@ -133,21 +141,29 @@ class ResultsViewerDialog(QDialog):
         self.current_base_overlay = None
         self.current_preview_image = None
         self.current_preview_pixmap = None
+        self._draft_pixmap = None
         self.selected_label = None
         self.label_to_cell_id = {}
         self.region_values_by_label = {}
         self.measurements_by_image = {}
         self.zoom = 1.0
-        # Reescalar o pixmap inteiro (set_preview_pixmap) a cada evento de
-        # wheel e caro em zoom alto, e trackpads/mouses de precisao disparam
+        # Reescalar o pixmap em resolucao nativa (set_preview_pixmap) a cada
+        # evento de wheel e caro pra imagens grandes (aqui ainda mais, por
+        # usar SmoothTransformation), e trackpads/mouses de precisao disparam
         # muitos eventos por "um scroll". Sem throttle, a UI trava
         # processando cada um, o SO enfileira os seguintes, e quando libera
         # processa o acumulo de uma vez - parece que o zoom "trava" e depois
-        # precisa de scroll bem maior pra desfazer. Aqui o calculo do zoom
-        # continua rodando a cada evento (barato), mas o redesenho pesado e
-        # agrupado: o primeiro evento de uma rajada redesenha na hora
-        # (feedback imediato) e os seguintes, enquanto durar a rajada, ficam
-        # agrupados num redesenho a cada 30ms em vez de um por evento.
+        # precisa de scroll bem maior pra desfazer. Duas medidas juntas
+        # resolvem isso: (1) o calculo do zoom roda a cada evento (barato),
+        # mas o redesenho pesado e agrupado - o primeiro evento de uma
+        # rajada redesenha na hora (feedback imediato) e os seguintes,
+        # enquanto durar a rajada, ficam agrupados num redesenho a cada 30ms
+        # em vez de um por evento; (2) cada redesenho DURANTE a rajada usa
+        # um pixmap "rascunho" pequeno (ver DRAFT_MAX_DIMENSION) - reescala-
+        # lo e barato nao importa o tamanho da imagem original, entao o
+        # redesenho acompanha o ritmo mesmo em imagens gigantes. Ao parar a
+        # rajada, o ultimo redesenho troca pra fonte em resolucao nativa pra
+        # devolver nitidez no resultado parado.
         self._zoom_redraw_timer = QTimer(self)
         self._zoom_redraw_timer.setInterval(30)
         self._zoom_redraw_timer.timeout.connect(self._flush_pending_zoom_redraw)
@@ -255,28 +271,11 @@ class ResultsViewerDialog(QDialog):
         self.window.populate_csv_table(self.counts_table, counts_rows)
         self._measurements_rows = self.window.load_semicolon_csv(cell_measurements_csv_path(self.window.config))
 
-        cell_count_by_stem = {}
-        if counts_rows and len(counts_rows) > 1:
-            headers = counts_rows[0]
-            try:
-                fn_idx = headers.index("imagem")
-                cc_idx = headers.index("quantidade_vasos")
-                for row in counts_rows[1:]:
-                    if len(row) > max(fn_idx, cc_idx):
-                        try:
-                            cell_count_by_stem[row[fn_idx]] = int(float(row[cc_idx]))
-                        except (ValueError, TypeError):
-                            pass
-            except ValueError:
-                pass
-
         self.image_list.clear()
         for stem in self.window.result_image_entries():
             if not self.window.result_overlay_exists(stem):
                 continue
-            count = cell_count_by_stem.get(stem)
-            display = f"{stem}  ({count})" if count is not None else stem
-            item = QListWidgetItem(display)
+            item = QListWidgetItem(stem)
             item.setData(Qt.ItemDataRole.UserRole, stem)
             self.image_list.addItem(item)
 
@@ -338,6 +337,7 @@ class ResultsViewerDialog(QDialog):
         self.current_base_overlay = None
         self.current_preview_image = None
         self.current_preview_pixmap = None
+        self._draft_pixmap = None
         self.selected_label = None
         self.label_to_cell_id = {}
         self.region_values_by_label = {}
@@ -580,7 +580,20 @@ class ResultsViewerDialog(QDialog):
             return
         self.current_preview_image = image
         self.current_preview_pixmap = QPixmap.fromImage(qimage)
+        self._draft_pixmap = self._build_draft_pixmap(self.current_preview_pixmap)
         self.set_preview_pixmap()
+
+    def _build_draft_pixmap(self, pixmap):
+        longest_side = max(pixmap.width(), pixmap.height())
+        if longest_side <= DRAFT_MAX_DIMENSION:
+            return pixmap
+        draft_scale = DRAFT_MAX_DIMENSION / longest_side
+        return pixmap.scaled(
+            max(1, int(pixmap.width() * draft_scale)),
+            max(1, int(pixmap.height() * draft_scale)),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
 
     def _update_overlay_pixmap(self, image):
         """Swap overlay without recalculating scale — avoids zoom drift on cell selection."""
@@ -604,7 +617,7 @@ class ResultsViewerDialog(QDialog):
         )
         self.result_preview.setPixmap(pixmap)
 
-    def set_preview_pixmap(self):
+    def set_preview_pixmap(self, fast=False):
         if self.current_preview_image is None or self.current_preview_pixmap is None:
             return
         width, height = self.current_preview_image.size
@@ -614,11 +627,15 @@ class ResultsViewerDialog(QDialog):
         scale = min(scale, MAX_TARGET_DIMENSION / max(width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
-        pixmap = self.current_preview_pixmap.scaled(
+        source_pixmap = self._draft_pixmap if (fast and self._draft_pixmap is not None) else self.current_preview_pixmap
+        pixmap = source_pixmap.scaled(
             target_width,
             target_height,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+            # Durante a rajada (fast=True) usa FastTransformation mesmo
+            # nesse pixmap pequeno - a troca pra SmoothTransformation so
+            # importa (e so fica barata) no redesenho final, parado.
+            Qt.TransformationMode.FastTransformation if fast else Qt.TransformationMode.SmoothTransformation,
         )
         self.result_preview.setMinimumSize(pixmap.size())
         self.result_preview.resize(pixmap.size())
@@ -662,9 +679,15 @@ class ResultsViewerDialog(QDialog):
     def _flush_pending_zoom_redraw(self):
         if not self._zoom_redraw_pending:
             self._zoom_redraw_timer.stop()
+            # Rajada terminou: troca o rascunho rapido pela imagem em
+            # resolucao nativa (com SmoothTransformation) pra devolver
+            # nitidez. Mesmo scale/tamanho exibido de antes (so a fonte do
+            # scaled() muda), entao a posicao de scroll atual continua
+            # valida sem precisar recentrar.
+            self.set_preview_pixmap(fast=False)
             return
         self._zoom_redraw_pending = False
-        self.set_preview_pixmap()
+        self.set_preview_pixmap(fast=True)
         point = self._pending_zoom_point
         viewport_x, viewport_y = self._pending_zoom_viewport
         if point is not None and viewport_x is not None and viewport_y is not None:

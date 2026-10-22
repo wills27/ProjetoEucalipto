@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from services.i18n import tr
 from services.paths import active_image_set_dir, relative_to_project
 from ui.widgets import AnnotationPreviewLabel
 from ui.tables.results_images_table import ResultsImagesTable
@@ -26,7 +27,8 @@ class ResultsPageBuilderMixin:
         left_column = QVBoxLayout()
         left_column.setSpacing(12)
 
-        model_box = self.panel("Predicao")
+        self._results_prediction_panel = self.panel(tr("results.prediction"))
+        model_box = self._results_prediction_panel
         model_layout = QGridLayout(model_box)
         model_layout.setContentsMargins(10, 8, 10, 10)
         model_layout.setHorizontalSpacing(10)
@@ -42,7 +44,8 @@ class ResultsPageBuilderMixin:
         self.pred_flow = QLineEdit(str(self.config["flow_threshold"]))
         for field in [self.pred_padding, self.pred_diameter, self.pred_cellprob, self.pred_flow]:
             field.setMinimumWidth(64)
-        self.results_calibration_label = QLabel("Calibracao: nao definida")
+        self.pred_diameter.textChanged.connect(self.update_diameter_preview)
+        self.results_calibration_label = QLabel(tr("calibration.not_set"))
         self.results_calibration_label.setObjectName("hint")
 
         params_row = QWidget()
@@ -54,44 +57,46 @@ class ResultsPageBuilderMixin:
         diameter_layout = QHBoxLayout(diameter_row)
         diameter_layout.setContentsMargins(0, 0, 0, 0)
         diameter_layout.setSpacing(8)
-        diameter_label = QLabel("Diametro")
-        diameter_label.setObjectName("largeText")
+        self.diameter_label = QLabel(tr("results.diameter_estimate"))
+        self.diameter_label.setObjectName("largeText")
         self.pred_diameter.setMinimumWidth(96)
-        diameter_layout.addWidget(diameter_label)
+        diameter_layout.addWidget(self.diameter_label)
         diameter_layout.addWidget(self.pred_diameter)
         diameter_layout.addStretch()
         params_layout.addWidget(diameter_row)
 
         self.advanced_prediction_button = self.advanced_params_button(
             [
-                ("Padding", self.pred_padding),
-                ("Cell prob", self.pred_cellprob),
-                ("Flow", self.pred_flow),
+                (tr("results.padding"), self.pred_padding),
+                (tr("results.cellprob"), self.pred_cellprob),
+                (tr("results.flow"), self.pred_flow),
             ]
         )
         params_layout.addWidget(self.advanced_prediction_button)
 
-        model_layout.addWidget(QLabel("Modelo"), 0, 0)
-        model_layout.addWidget(self.predict_model_label, 0, 1)
-        model_layout.addWidget(QLabel("Parametros"), 1, 0)
-        model_layout.addWidget(params_row, 1, 1)
-        model_layout.addWidget(self.results_calibration_label, 2, 1)
+        # O nome do modelo ativo (self.predict_model_label) continua sendo
+        # atualizado em ui/model_presenter.py, mas nao e mais exibido aqui -
+        # e redundante com a selecao de modelo na barra lateral.
+        self.results_parameters_label = QLabel(tr("results.parameters"))
+        model_layout.addWidget(self.results_parameters_label, 0, 0)
+        model_layout.addWidget(params_row, 0, 1)
+        model_layout.addWidget(self.results_calibration_label, 1, 1)
         predict_actions = QHBoxLayout()
         self.generate_results_button = self.add_button(
             predict_actions,
-            "Gerar resultados",
+            tr("results.generate"),
             self.run_results_for_selected_images,
             primary=True,
         )
-        view_results_button = self.add_button(predict_actions, "Visualizar resultados", self.open_results_viewer)
-        view_results_button.setObjectName("accent")
+        self.view_results_button = self.add_button(predict_actions, tr("results.view"), self.open_results_viewer)
+        self.view_results_button.setObjectName("accent")
         self.export_results_button = self.add_button(
-            predict_actions, "Exportar resultados", self.export_result_csvs
+            predict_actions, tr("results.export"), self.export_result_csvs
         )
         self.export_results_button.hide()
         predict_actions.addStretch()
-        model_layout.addLayout(predict_actions, 3, 1)
-        self.result_progress_label = QLabel("Aguardando processo.")
+        model_layout.addLayout(predict_actions, 2, 1)
+        self.result_progress_label = QLabel(tr("results.waiting"))
         self.result_progress_label.setObjectName("hint")
         self.result_progress_label.setWordWrap(True)
         self.result_progress_bar = QProgressBar()
@@ -99,9 +104,10 @@ class ResultsPageBuilderMixin:
         self.result_progress_bar.setValue(0)
         self.result_progress_bar.setFormat("%p%")
         self.result_progress_bar.setTextVisible(True)
-        model_layout.addWidget(self.result_progress_label, 4, 1)
-        model_layout.addWidget(self.result_progress_bar, 5, 1)
-        left = self.panel("Imagens")
+        model_layout.addWidget(self.result_progress_label, 3, 1)
+        model_layout.addWidget(self.result_progress_bar, 4, 1)
+        self._results_images_panel = self.panel(tr("results.images"))
+        left = self._results_images_panel
         left_layout = QVBoxLayout(left)
         self.result_images_table = ResultsImagesTable(
             {
@@ -116,7 +122,9 @@ class ResultsPageBuilderMixin:
             0,
             4,
         )
-        self.result_images_table.setHorizontalHeaderLabels(["", "Imagem", "Overlay", "Metricas"])
+        self.result_images_table.setHorizontalHeaderLabels(
+            ["", tr("results.header_image"), tr("results.header_overlay"), tr("results.header_metrics")]
+        )
         self.result_images_table.verticalHeader().setVisible(False)
         self.result_images_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.result_images_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -138,24 +146,26 @@ class ResultsPageBuilderMixin:
         left_column.addWidget(model_box)
         layout.addLayout(left_column, 0)
 
-        center = self.panel("Visualizador")
+        self._results_viewer_panel = self.panel(tr("results.viewer"))
+        center = self._results_viewer_panel
         center_layout = QVBoxLayout(center)
         mode_layout = QHBoxLayout()
         self.view_buttons = {}
-        for label, mode in [
-            ("Original", "original"),
-            ("Mascara", "overlay"),
-            ("Freq. 50%", "overlay_50pct"),
-            ("Freq. 100%", "overlay_inteiros"),
-            ("Diametro", "overlay_diametro"),
-            ("Diametro cruzado", "overlay_diametro_cruzado"),
-        ]:
+        self._view_mode_keys = {
+            "original": "results.mode_original",
+            "overlay": "results.mode_mask",
+            "overlay_50pct": "results.mode_freq_50",
+            "overlay_inteiros": "results.mode_freq_100",
+            "overlay_diametro": "results.mode_diameter",
+            "overlay_diametro_cruzado": "results.mode_diameter_cross",
+        }
+        for mode, key in self._view_mode_keys.items():
             button = self.add_mode_button(
-                mode_layout, label, lambda checked=False, selected=mode: self.set_view_mode(selected)
+                mode_layout, tr(key), lambda checked=False, selected=mode: self.set_view_mode(selected)
             )
             self.view_buttons[mode] = button
         mode_layout.addStretch()
-        self.vessel_colorful_checkbox = QCheckBox("Colorido")
+        self.vessel_colorful_checkbox = QCheckBox(tr("results.colorful"))
         self.vessel_colorful_checkbox.setChecked(True)
         self.vessel_colorful_checkbox.toggled.connect(self.set_vessel_colorful)
         mode_layout.addWidget(self.vessel_colorful_checkbox)
@@ -172,9 +182,33 @@ class ResultsPageBuilderMixin:
         self.preview_label.setMinimumSize(320, 240)
         self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_layout.addWidget(self.preview_label, 1)
+        self.update_diameter_preview()
         edit_mask_layout = QHBoxLayout()
-        self.add_button(edit_mask_layout, "Exportar imagem", self.export_context_result_images)
-        self.add_button(edit_mask_layout, "Editar mascara", self.open_selected_result_mask_editor)
+        self.export_image_button = self.add_button(
+            edit_mask_layout, tr("results.export_image"), self.export_context_result_images
+        )
+        self.edit_mask_button = self.add_button(
+            edit_mask_layout, tr("results.edit_mask"), self.open_selected_result_mask_editor
+        )
         edit_mask_layout.addStretch()
         center_layout.addLayout(edit_mask_layout)
         layout.addWidget(center, 1)
+
+    def retranslate_results_page(self):
+        self._results_prediction_panel.setTitle(tr("results.prediction"))
+        self.diameter_label.setText(tr("results.diameter_estimate"))
+        self.results_parameters_label.setText(tr("results.parameters"))
+        self.generate_results_button.setText(tr("results.generate"))
+        self.view_results_button.setText(tr("results.view"))
+        self.export_results_button.setText(tr("results.export"))
+        self._results_images_panel.setTitle(tr("results.images"))
+        self.result_images_table.setHorizontalHeaderLabels(
+            ["", tr("results.header_image"), tr("results.header_overlay"), tr("results.header_metrics")]
+        )
+        self._results_viewer_panel.setTitle(tr("results.viewer"))
+        for mode, button in self.view_buttons.items():
+            button.setText(tr(self._view_mode_keys[mode]))
+        self.vessel_colorful_checkbox.setText(tr("results.colorful"))
+        self.export_image_button.setText(tr("results.export_image"))
+        self.edit_mask_button.setText(tr("results.edit_mask"))
+        self.refresh_calibration_labels()

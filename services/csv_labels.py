@@ -10,12 +10,12 @@ CSV_FIXED_LABELS = {
     "imagem": "Imagem",
     "id_vaso": "Id vaso",
     "quantidade_vasos": "Quantidade vasos",
-    "percentual_area_ocupada": "Area ocupada por vaso (%)",
+    "percentual_area_ocupada": "Área ocupada por vaso (%)",
     # Densidade (vasos/mm2 de area total da imagem - padrao "vessel
     # frequency" da anatomia da madeira), nao contagem bruta; por isso
     # some sem calibracao (cal_only, abaixo) em vez de mostrar vazio.
-    "freq_vaso_50pct": "Frequencia vasos 50% (n°/mm²)",
-    "freq_vaso_inteiros": "Frequencia vasos inteiros (n°/mm²)",
+    "freq_vaso_50pct": "Frequência vasos 50% (n°/mm²)",
+    "freq_vaso_inteiros": "Frequência vasos inteiros (n°/mm²)",
 }
 
 
@@ -48,16 +48,16 @@ def default_column_label(key):
 def csv_column_label(key, unit_symbol):
     if unit_symbol:
         unit_labels = {
-            "area": f"Area ({unit_symbol}²)",
-            "diametro_menor": f"Diametro menor ({unit_symbol})",
-            "diametro_cruzado": f"Diametro cruzado ({unit_symbol})",
-            "media_area": f"Area media dos vasos ({unit_symbol}²)",
+            "area": f"Área ({unit_symbol}²)",
+            "diametro_menor": f"Diâmetro menor ({unit_symbol})",
+            "diametro_cruzado": f"Diâmetro cruzado ({unit_symbol})",
+            "media_area": f"Área média dos vasos ({unit_symbol}²)",
             # "media_diametro_menor" e a media do eixo MENOR (mesmo
             # criterio da coluna por vaso "Diametro menor" acima) - o
             # rotulo deixa isso explicito agora que existe tambem a
             # media do diametro cruzado, logo abaixo.
-            "media_diametro_menor": f"Diametro menor ({unit_symbol})",
-            "media_diametro_cruzado": f"Diametro cruzado medio ({unit_symbol})",
+            "media_diametro_menor": f"Diâmetro menor ({unit_symbol})",
+            "media_diametro_cruzado": f"Diâmetro cruzado médio ({unit_symbol})",
         }
         if key in unit_labels:
             return unit_labels[key]
@@ -76,6 +76,10 @@ def csv_visible_columns(headers, has_calibration):
         # A unidade agora aparece embutida no nome de cada coluna
         # calibrada (ex: "Area (µm²)"), entao a coluna solta some.
         "unidade",
+        # Quantidade bruta de vasos: continua gravada no arquivo (permite
+        # recalculo futuro) mas nao e mais exibida nem na tabela do app nem
+        # na exportacao.
+        "quantidade_vasos",
     }
     cal_only = {
         "area", "diametro_menor", "diametro_cruzado",

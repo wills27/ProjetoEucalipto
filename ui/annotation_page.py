@@ -79,7 +79,7 @@ class AnnotationPage(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("hint")
         self.tool_hint_label = QLabel(
-            "Edicao manual disponivel na janela maior. De duplo clique na imagem para abrir."
+            "Edição manual disponível na janela maior. Dê duplo clique na imagem para abrir."
         )
         self.tool_hint_label.setWordWrap(True)
         self.tool_hint_label.setObjectName("hint")
@@ -101,7 +101,7 @@ class AnnotationPage(QWidget):
         layout = QHBoxLayout(self)
         layout.setSpacing(12)
 
-        left = self.window.panel("Fila de anotacao")
+        left = self.window.panel("Fila de anotação")
         left_layout = QVBoxLayout(left)
         self.summary = QLabel("Aguardando imagens.")
         self.summary.setObjectName("mono")
@@ -113,7 +113,7 @@ class AnnotationPage(QWidget):
         self.busy_controls.append(refresh_button)
         layout.addWidget(left, 0)
 
-        center = self.window.panel("Pre-visualizacao")
+        center = self.window.panel("Pré-visualização")
         center_layout = QVBoxLayout(center)
         mode_layout = QHBoxLayout()
         for label, mode in [("Original", "original"), ("Overlay", "overlay")]:
@@ -141,15 +141,15 @@ class AnnotationPage(QWidget):
         center_layout.addWidget(self.preview_label, 1)
         layout.addWidget(center, 1)
 
-        right = self.window.panel("Acoes")
+        right = self.window.panel("Ações")
         right_layout = QVBoxLayout(right)
         right_layout.addWidget(self.model_label)
 
-        params_box = self.window.panel("Parametros do modelo")
+        params_box = self.window.panel("Parâmetros do modelo")
         params_layout = QGridLayout(params_box)
         params_layout.addWidget(QLabel("Padding"), 0, 0)
         params_layout.addWidget(self.padding, 0, 1)
-        params_layout.addWidget(QLabel("Diametro"), 1, 0)
+        params_layout.addWidget(QLabel("Diâmetro"), 1, 0)
         params_layout.addWidget(self.diameter, 1, 1)
         params_layout.addWidget(QLabel("Cell prob threshold"), 2, 0)
         params_layout.addWidget(self.cellprob, 2, 1)
@@ -159,14 +159,14 @@ class AnnotationPage(QWidget):
 
         predict_button = self.window.add_button(
             right_layout,
-            "Gerar mascara automatica",
+            "Gerar máscara automática",
             self.window.run_annotation_mask_prediction,
             primary=True,
         )
         edit_button = self.window.add_button(right_layout, "Editar em janela maior", self.open_editor)
         self.busy_controls.extend([predict_button, edit_button])
 
-        tools_box = self.window.panel("Edicao manual")
+        tools_box = self.window.panel("Edição manual")
         tools_layout = QGridLayout(tools_box)
         self.contour_button = components.make_mode_button(
             "Contorno", lambda: self.set_tool("contour"), active=True
@@ -175,7 +175,7 @@ class AnnotationPage(QWidget):
         self.eraser_button = components.make_mode_button("Borracha", lambda: self.set_tool("eraser"))
         self.eraser_button.setVisible(False)
 
-        save_mask_button = QPushButton("Salvar mascara")
+        save_mask_button = QPushButton("Salvar máscara")
         save_mask_button.setObjectName("primary")
         save_mask_button.clicked.connect(self.save_mask)
         self.busy_controls.append(save_mask_button)
@@ -243,7 +243,7 @@ class AnnotationPage(QWidget):
         else:
             self.preview_label.setText("Nenhuma imagem encontrada.")
             self.preview_label.setPixmap(QPixmap())
-            self.status_label.setText("A pasta de entrada nao tem imagens.")
+            self.status_label.setText("A pasta de entrada não tem imagens.")
 
     def image_entries(self):
         input_dir = dataset_images_dir(self.window.config)
@@ -311,9 +311,9 @@ class AnnotationPage(QWidget):
         image_path = entry.path
         if not image_path.exists():
             if self.build_ui:
-                self.preview_label.setText("Imagem nao encontrada.")
+                self.preview_label.setText("Imagem não encontrada.")
                 self.preview_label.setPixmap(QPixmap())
-            self.set_status("Imagem nao encontrada.")
+            self.set_status("Imagem não encontrada.")
             return
         try:
             self.current_image_entry = entry
@@ -334,7 +334,7 @@ class AnnotationPage(QWidget):
             if hasattr(self.window, "show_error"):
                 self.window.show_error(
                     "Erro ao carregar preview",
-                    "Nao foi possivel carregar a imagem ou a mascara.",
+                    "Não foi possível carregar a imagem ou a máscara.",
                     traceback.format_exc(),
                 )
 
@@ -412,8 +412,8 @@ class AnnotationPage(QWidget):
     def set_tool(self, tool):
         self.tool = tool
         hints = {
-            "contour": "Janela maior: botao direito desenha/fecha; Ctrl + esquerdo remove a mascara clicada.",
-            "eraser": "Janela maior: arraste com o botao direito para apagar; Ctrl + esquerdo remove a mascara clicada.",
+            "contour": "Janela maior: botão direito desenha/fecha; Ctrl + esquerdo remove a máscara clicada.",
+            "eraser": "Janela maior: arraste com o botão direito para apagar; Ctrl + esquerdo remove a máscara clicada.",
         }
         if tool not in hints:
             tool = "contour"
@@ -455,10 +455,10 @@ class AnnotationPage(QWidget):
 
     def open_editor(self):
         if self.is_busy:
-            QMessageBox.information(self.window, "Anotar", "Aguarde a mascara automatica terminar.")
+            QMessageBox.information(self.window, "Anotar", "Aguarde a máscara automática terminar.")
             return
         if self.current_image_entry is None or self.base_image is None:
-            QMessageBox.information(self.window, "Editar mascara", "Selecione uma imagem para editar.")
+            QMessageBox.information(self.window, "Editar máscara", "Selecione uma imagem para editar.")
             return
 
         dialog = AnnotationEditorDialog(
@@ -572,11 +572,11 @@ class AnnotationPage(QWidget):
         image_x, image_y = point
         label_value = int(self.mask[image_y, image_x])
         if label_value == 0:
-            self.status_label.setText("Nenhuma mascara nesse ponto.")
+            self.status_label.setText("Nenhuma máscara nesse ponto.")
             return
         component, label_value = connected_component_at(self.mask, point)
         if component is None:
-            self.status_label.setText("Nenhuma mascara nesse ponto.")
+            self.status_label.setText("Nenhuma máscara nesse ponto.")
             return
         self.push_history()
         self.reset_transient_drawing()
@@ -791,7 +791,7 @@ class AnnotationPage(QWidget):
         self.mask_version += 1
         self.invalidate_render_cache()
         self.update_preview()
-        self.status_label.setText("Mascara limpa em memoria. Clique em salvar para gravar.")
+        self.status_label.setText("Máscara limpa em memória. Clique em salvar para gravar.")
 
     def undo_mask(self):
         if self.is_busy:
@@ -818,10 +818,10 @@ class AnnotationPage(QWidget):
         target = self.current_image_entry
         if not target or self.mask is None:
             if not silent:
-                QMessageBox.information(self.window, "Anotar", "Selecione uma imagem para salvar a mascara.")
+                QMessageBox.information(self.window, "Anotar", "Selecione uma imagem para salvar a máscara.")
             return
         if not self.mask_has_changes():
-            self.set_status("Mascara sem alteracoes; salvamento ignorado.")
+            self.set_status("Máscara sem alterações; salvamento ignorado.")
             return False
         saved = target.save(self.mask, self, silent=silent, recalculate=recalculate)
         if saved:

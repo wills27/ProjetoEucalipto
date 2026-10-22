@@ -338,15 +338,6 @@ def build_summary_row(
 def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixel=0.0):
     H, W = mask.shape
 
-    mask_50pct = filtrar_celulas_borda_proporcional(
-        mask,
-        area_minima=0,
-        max_borda_diametro_ratio=1.5,
-        borda_expandida=8,
-    )
-    props_50pct = regionprops(mask_50pct)
-    freq_vaso_50pct = len(props_50pct)
-
     mask_inteiros = build_mask_inteiros(mask)
     props_inteiros = regionprops(mask_inteiros)
     ellipse_by_label_inteiros = compute_ellipse_axes_by_label(mask_inteiros)
@@ -356,6 +347,14 @@ def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixe
     area_total_vasos = sum(p.area for p in props_todos)
     area_total_img = H * W
 
+    # FV = (N_inteiros + 0.5*N_parciais) / area, regra padrao de anatomia da
+    # madeira pra vasos cortados na borda: todo vaso que toca a borda entra
+    # com peso 0.5 (nao importa quanto dele esta visivel), sem sorteio e sem
+    # limiar de area/percentual.
+    n_inteiros = len(props_inteiros)
+    n_parciais = len(props_todos) - n_inteiros
+    fv_count = n_inteiros + 0.5 * n_parciais
+
     measurements = build_measurement_rows(filename, props_todos, ellipse_by_label_todos, unit, unit_per_pixel)
     summary = build_summary_row(
         filename,
@@ -363,7 +362,7 @@ def process_mask_for_csv(mask, filename, output_dir=None, unit="", unit_per_pixe
         ellipse_by_label_inteiros,
         area_total_vasos,
         area_total_img,
-        freq_vaso_50pct,
+        fv_count,
         len(props_todos),
         unit,
         unit_per_pixel,

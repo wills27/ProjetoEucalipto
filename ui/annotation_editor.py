@@ -18,6 +18,14 @@ from ui.widgets import AnnotationPreviewLabel, displayed_pixmap_geometry
 
 MAX_TARGET_DIMENSION = 13000
 
+# Lado maior (em px) do pixmap "rascunho" usado so durante uma rajada de
+# zoom (ver zoom_preview/_flush_pending_zoom_redraw) - reescalar esse
+# rascunho pequeno e barato nao importa o tamanho da imagem original, entao
+# o redesenho acompanha o ritmo dos eventos de wheel mesmo em imagens
+# gigantes. Ao parar a rajada, o ultimo redesenho troca pra fonte em
+# resolucao nativa pra devolver nitidez no resultado parado.
+DRAFT_MAX_DIMENSION = 2000
+
 
 class AnnotationEditorDialog(QDialog):
     def __init__(
@@ -39,17 +47,24 @@ class AnnotationEditorDialog(QDialog):
         self.refresh_callback = None
         self.current_image = None
         self.current_pixmap = None
+        self._draft_pixmap = None
         self.zoom = 1.0
-        # Reescalar o pixmap inteiro (_set_preview_pixmap) a cada evento de
-        # wheel e caro em zoom alto, e trackpads/mouses de precisao disparam
-        # muitos eventos por "um scroll". Sem throttle, a UI trava
-        # processando cada um, o SO enfileira os seguintes, e quando libera
-        # processa o acumulo de uma vez - parece que o zoom "trava" e depois
-        # precisa de scroll bem maior pra desfazer. Aqui o calculo do zoom
-        # continua rodando a cada evento (barato), mas o redesenho pesado e
-        # agrupado: o primeiro evento de uma rajada redesenha na hora
-        # (feedback imediato) e os seguintes, enquanto durar a rajada, ficam
-        # agrupados num redesenho a cada 30ms em vez de um por evento.
+        # Reescalar o pixmap em resolucao nativa (_set_preview_pixmap) a
+        # cada evento de wheel e caro pra imagens grandes, e trackpads/mouses
+        # de precisao disparam muitos eventos por "um scroll". Sem throttle,
+        # a UI trava processando cada um, o SO enfileira os seguintes, e
+        # quando libera processa o acumulo de uma vez - parece que o zoom
+        # "trava" e depois precisa de scroll bem maior pra desfazer. Duas
+        # medidas juntas resolvem isso: (1) o calculo do zoom roda a cada
+        # evento (barato), mas o redesenho pesado e agrupado - o primeiro
+        # evento de uma rajada redesenha na hora (feedback imediato) e os
+        # seguintes, enquanto durar a rajada, ficam agrupados num redesenho
+        # a cada 30ms em vez de um por evento; (2) cada redesenho DURANTE a
+        # rajada usa um pixmap "rascunho" pequeno (ver DRAFT_MAX_DIMENSION) -
+        # reescala-lo e barato nao importa o tamanho da imagem original,
+        # entao o redesenho acompanha o ritmo mesmo em imagens gigantes. Ao
+        # parar a rajada, o ultimo redesenho troca pra fonte em resolucao
+        # nativa pra devolver nitidez no resultado parado.
         self._zoom_redraw_timer = QTimer(self)
         self._zoom_redraw_timer.setInterval(30)
         self._zoom_redraw_timer.timeout.connect(self._flush_pending_zoom_redraw)
@@ -215,6 +230,7 @@ class AnnotationEditorDialog(QDialog):
             QImage.Format.Format_RGB888,
         ).copy()
         self.current_pixmap = QPixmap.fromImage(qimage)
+        self._draft_pixmap = self._build_draft_pixmap(self.current_pixmap)
         self._set_preview_pixmap()
 
     def reset_zoom(self):
@@ -264,9 +280,14 @@ class AnnotationEditorDialog(QDialog):
     def _flush_pending_zoom_redraw(self):
         if not self._zoom_redraw_pending:
             self._zoom_redraw_timer.stop()
+            # Rajada terminou: troca o rascunho rapido pela imagem em
+            # resolucao nativa pra devolver nitidez. Mesmo scale/tamanho
+            # exibido de antes (so a fonte do scaled() muda), entao a
+            # posicao de scroll atual continua valida sem precisar recentrar.
+            self._set_preview_pixmap(fast=False)
             return
         self._zoom_redraw_pending = False
-        self._set_preview_pixmap()
+        self._set_preview_pixmap(fast=True)
         point = self._pending_zoom_point
         viewport_x, viewport_y = self._pending_zoom_viewport
         if point is not None and viewport_x is not None and viewport_y is not None:
@@ -285,14 +306,27 @@ class AnnotationEditorDialog(QDialog):
             return None
         return image_x, image_y
 
-    def _set_preview_pixmap(self):
+    def _build_draft_pixmap(self, pixmap):
+        longest_side = max(pixmap.width(), pixmap.height())
+        if longest_side <= DRAFT_MAX_DIMENSION:
+            return pixmap
+        draft_scale = DRAFT_MAX_DIMENSION / longest_side
+        return pixmap.scaled(
+            max(1, int(pixmap.width() * draft_scale)),
+            max(1, int(pixmap.height() * draft_scale)),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+
+    def _set_preview_pixmap(self, fast=False):
         if self.current_image is None or self.current_pixmap is None:
             return
         width, height = self.current_image.size
         scale = self.preview_scale_for_size((width, height))
         target_width = max(1, int(width * scale))
         target_height = max(1, int(height * scale))
-        pixmap = self.current_pixmap.scaled(
+        source_pixmap = self._draft_pixmap if (fast and self._draft_pixmap is not None) else self.current_pixmap
+        pixmap = source_pixmap.scaled(
             target_width,
             target_height,
             Qt.AspectRatioMode.KeepAspectRatio,

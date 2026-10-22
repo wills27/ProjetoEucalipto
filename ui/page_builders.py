@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from services.i18n import tr
 from ui import components
 from ui.annotation_page import AnnotationPage
 from ui.tables.dataset_pairs_table import DatasetPairsTable
@@ -44,36 +45,35 @@ class UiBuilderMixin:
         components.apply_elevation(sidebar)
         body.addWidget(sidebar, 0)
 
-        self.add_button(sidebar_layout, "Importar imagens", self.import_images_into_active_image_set, primary=True)
+        self.sidebar_calibration_button = self.add_button(
+            sidebar_layout, tr("sidebar.calibration"), self.open_calibration_dialog
+        )
 
         sidebar_layout.addSpacing(8)
 
-        self.add_button(sidebar_layout, "Calibracao", self.open_calibration_dialog)
+        self.sidebar_import_button = self.add_button(
+            sidebar_layout, tr("sidebar.import_images"), self.import_images_into_active_image_set, primary=True
+        )
 
         sidebar_layout.addSpacing(8)
 
-        model_label = QLabel("Modelo")
-        model_label.setObjectName("sidebarSection")
-        sidebar_layout.addWidget(model_label)
+        self.model_section_label = QLabel(tr("sidebar.model"))
+        self.model_section_label.setObjectName("sidebarSection")
+        sidebar_layout.addWidget(self.model_section_label)
         self.home_model_combo = QComboBox()
         self.home_model_combo.currentIndexChanged.connect(self.on_home_model_changed)
         sidebar_layout.addWidget(self.home_model_combo)
 
-        sidebar_layout.addSpacing(8)
-
-        image_set_label = QLabel("Conjunto de imagens")
-        image_set_label.setObjectName("sidebarSection")
-        sidebar_layout.addWidget(image_set_label)
+        # "Conjunto de imagens" fica escondido da sidebar por enquanto (so
+        # visual - os widgets continuam existindo e funcionais, so nao
+        # entram no layout) enquanto o app roda sempre com o conjunto
+        # temporario como padrao (ver PENDING_IMAGE_SET / load_config).
         self.image_set_combo = QComboBox()
         self.image_set_combo.currentIndexChanged.connect(self.on_image_set_selector_changed)
-        sidebar_layout.addWidget(self.image_set_combo)
         self.image_set_badge = QLabel()
         self.image_set_badge.setObjectName("imageSetBadge")
         self.image_set_badge.setWordWrap(True)
         self.image_set_badge.hide()
-        sidebar_layout.addWidget(self.image_set_badge)
-        self.add_button(sidebar_layout, "Novo conjunto", self.create_image_set)
-        self.add_button(sidebar_layout, "Remover conjunto", self.delete_active_image_set)
 
         sidebar_layout.addStretch()
 
@@ -112,19 +112,24 @@ class UiBuilderMixin:
         self.set_page(0)
         self.apply_style()
 
+    def retranslate_sidebar(self):
+        self.sidebar_calibration_button.setText(tr("sidebar.calibration"))
+        self.sidebar_import_button.setText(tr("sidebar.import_images"))
+        self.model_section_label.setText(tr("sidebar.model"))
+
     def build_dataset_section(self):
-        self._dataset_table_panel = self.panel("Selecao do dataset")
+        self._dataset_table_panel = self.panel("Seleção do dataset")
         table_layout = QVBoxLayout(self._dataset_table_panel)
         self.dataset_validation_summary = QLabel()
         self.dataset_validation_summary.setObjectName("mono")
         table_layout.addWidget(self.dataset_validation_summary)
-        self.dataset_calibration_label = QLabel("Calibracao: nao definida")
+        self.dataset_calibration_label = QLabel("Calibração: não definida")
         self.dataset_calibration_label.setObjectName("hint")
         table_layout.addWidget(self.dataset_calibration_label)
         filters_box = self.panel("Filtros")
         filters_layout = QHBoxLayout(filters_box)
         self.dataset_filter = QLineEdit()
-        self.dataset_filter.setPlaceholderText("Buscar por numero ou nome")
+        self.dataset_filter.setPlaceholderText("Buscar por número ou nome")
         self.dataset_filter.textChanged.connect(self.apply_dataset_filter)
         self.dataset_status_filter = QComboBox()
         self.dataset_status_filter.addItem("Status: todos", "")
@@ -136,13 +141,13 @@ class UiBuilderMixin:
         self.dataset_group_filter.addItem("Sem categoria", "uncategorized")
         self.dataset_group_filter.addItem("Auto", "auto")
         self.dataset_group_filter.addItem("Treino", "train")
-        self.dataset_group_filter.addItem("Validacao", "val")
+        self.dataset_group_filter.addItem("Validação", "val")
         self.dataset_group_filter.addItem("Teste", "test")
         self.dataset_group_filter.currentIndexChanged.connect(self.apply_dataset_filter)
         self.dataset_include_filter = QComboBox()
         self.dataset_include_filter.addItem("Uso: todos", "")
         self.dataset_include_filter.addItem("Selecionadas", "selected")
-        self.dataset_include_filter.addItem("Nao selecionadas", "unselected")
+        self.dataset_include_filter.addItem("Não selecionadas", "unselected")
         self.dataset_include_filter.currentIndexChanged.connect(self.apply_dataset_filter)
         clear_filter_button = QPushButton("Limpar filtros")
         clear_filter_button.clicked.connect(self.clear_dataset_filters)
@@ -181,7 +186,7 @@ class UiBuilderMixin:
         validation_actions.addStretch()
         table_layout.addLayout(validation_actions)
 
-        self._dataset_preview_panel = self.panel("Mascaras")
+        self._dataset_preview_panel = self.panel("Máscaras")
         preview_layout = QVBoxLayout(self._dataset_preview_panel)
         self.dataset_preview_label = AnnotationPreviewLabel(
             lambda *_args: None,
@@ -196,7 +201,7 @@ class UiBuilderMixin:
         self.dataset_preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.dataset_preview_label.setWordWrap(True)
         self.dataset_preview_info = QLabel(
-            "Imagens sem mascara entram como teste para Resultados. Duplo clique para editar/criar mascara."
+            "Imagens sem máscara entram como teste para Resultados. Duplo clique para editar/criar máscara."
         )
         self.dataset_preview_info.setObjectName("hint")
         self.dataset_preview_info.setWordWrap(True)
@@ -205,7 +210,7 @@ class UiBuilderMixin:
         prediction_params.setSpacing(8)
         self.dataset_prediction_diameter = QLineEdit(str(self.config["diameter"]))
         self.dataset_prediction_diameter.setMinimumWidth(72)
-        prediction_params.addWidget(QLabel("Diametro da predicao"))
+        prediction_params.addWidget(QLabel("Diâmetro da predição"))
         prediction_params.addWidget(self.dataset_prediction_diameter)
 
         self.dataset_prediction_padding = QLineEdit(str(self.config["padding_pixels"]))
@@ -226,12 +231,12 @@ class UiBuilderMixin:
         preview_actions = QHBoxLayout()
         self.dataset_predict_mask_button = self.add_button(
             preview_actions,
-            "Criar mascara com modelo",
+            "Criar máscara com modelo",
             self.run_annotation_mask_prediction,
         )
         self.dataset_edit_mask_button = self.add_button(
             preview_actions,
-            "Editar/desenhar mascara",
+            "Editar/desenhar máscara",
             self.open_selected_dataset_editor,
             primary=True,
         )
@@ -253,7 +258,7 @@ class UiBuilderMixin:
         # Alterna a tabela do dataset entre a etapa de mascaras (sem colunas/
         # acoes de separacao treino/val/teste) e a etapa de separacao dos
         # dados (que expoe grupo, filtros e acoes de divisao do dataset).
-        self._dataset_table_panel.setTitle("Separacao dos dados" if split else "Selecao do dataset")
+        self._dataset_table_panel.setTitle("Separação dos dados" if split else "Seleção do dataset")
         self.dataset_pairs_table.setColumnHidden(2, not split)
         self.dataset_group_filter.setVisible(split)
         self.dataset_include_filter.setVisible(split)

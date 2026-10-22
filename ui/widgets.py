@@ -80,39 +80,66 @@ class AnnotationPreviewLabel(QLabel):
         self.pan_start_h = 0
         self.pan_start_v = 0
         self.overlay_points = None
+        # Diametro de referencia (em px DA IMAGEM, nao do widget) pra
+        # desenhar um circulo de comparacao de tamanho sobre o preview - ver
+        # paintEvent/_paint_diameter_preview. None/0 desliga o desenho.
+        self.diameter_preview_px = None
         self.setMouseTracking(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
     def paintEvent(self, event):
         super().paintEvent(event)
         points = self.overlay_points
-        if not points:
+        diameter_px = self.diameter_preview_px
+        if not points and not diameter_px:
             return
         scale = getattr(self, "_display_scale", 1.0)
         offset_x = getattr(self, "_display_offset_x", 0)
         offset_y = getattr(self, "_display_offset_y", 0)
-        widget_points = [QPointF(p[0] * scale + offset_x, p[1] * scale + offset_y) for p in points]
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        if len(widget_points) == 2:
-            line_pen = QPen(QColor(255, 214, 74))
-            line_pen.setWidthF(1.4)
-            line_pen.setCosmetic(True)
-            painter.setPen(line_pen)
-            painter.drawLine(widget_points[0], widget_points[1])
+        if points:
+            widget_points = [QPointF(p[0] * scale + offset_x, p[1] * scale + offset_y) for p in points]
 
-        outline_pen = QPen(QColor(0, 46, 40))
-        outline_pen.setWidthF(1.3)
-        outline_pen.setCosmetic(True)
-        radius = 5.0
-        for widget_point in widget_points:
-            painter.setPen(outline_pen)
-            painter.setBrush(QColor(255, 214, 74))
-            painter.drawEllipse(widget_point, radius, radius)
+            if len(widget_points) == 2:
+                line_pen = QPen(QColor(255, 214, 74))
+                line_pen.setWidthF(1.4)
+                line_pen.setCosmetic(True)
+                painter.setPen(line_pen)
+                painter.drawLine(widget_points[0], widget_points[1])
+
+            outline_pen = QPen(QColor(0, 46, 40))
+            outline_pen.setWidthF(1.3)
+            outline_pen.setCosmetic(True)
+            radius = 3.0
+            for widget_point in widget_points:
+                painter.setPen(outline_pen)
+                painter.setBrush(QColor(255, 214, 74))
+                painter.drawEllipse(widget_point, radius, radius)
+
+        if diameter_px:
+            self._paint_diameter_preview(painter, diameter_px, scale)
 
         painter.end()
+
+    def _paint_diameter_preview(self, painter, diameter_px, scale):
+        """Circulo tracejado de referencia no mesmo zoom/escala da imagem
+        exibida, pra comparar visualmente o diametro estimado configurado
+        com o tamanho real dos vasos na foto. Ancorado num canto fixo do
+        widget (nao em coordenada de imagem) pra continuar visivel mesmo com
+        pan/scroll."""
+        radius = max(2.0, (diameter_px / 2.0) * scale)
+        margin = 24.0
+        center = QPointF(margin + radius, margin + radius)
+        pen = QPen(QColor(90, 170, 255))
+        pen.setWidthF(1.6)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(center, radius, radius)
 
     def mousePressEvent(self, event):
         if (

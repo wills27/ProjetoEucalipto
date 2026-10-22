@@ -36,7 +36,7 @@ def parse_training_log_line(line, friendly_error_callback=None):
         if "carregando dados de treino" in normalized:
             return {"type": "stage", "key": "dados_treino", "title": "Carregando dados de treino"}
         if "carregando dados de validacao" in normalized:
-            return {"type": "stage", "key": "dados_validacao", "title": "Carregando dados de validacao"}
+            return {"type": "stage", "key": "dados_validacao", "title": "Carregando dados de validação"}
         if "inicializando modelo" in normalized:
             return {"type": "stage", "key": "inicializar_modelo", "title": "Inicializando modelo"}
         if "treinamento principal iniciado" in normalized:
@@ -58,9 +58,9 @@ def parse_training_log_line(line, friendly_error_callback=None):
     if "modelo salvo em:" in normalized:
         return {"type": "model_saved", "path": message.split(":", 1)[-1].strip()}
     if "limpando arquivos temporarios" in normalized:
-        return {"type": "detail", "text": "Limpando arquivos temporarios do treino"}
+        return {"type": "detail", "text": "Limpando arquivos temporários do treino"}
     if "training flows apagados:" in normalized:
-        return {"type": "detail", "text": "Arquivos temporarios do treino removidos"}
+        return {"type": "detail", "text": "Arquivos temporários do treino removidos"}
     if any(marker in message for marker in ["Traceback", "RuntimeError", "Exception", "CUDA out of memory"]):
         text = friendly_error_callback(message) if friendly_error_callback else message
         return {"type": "error", "text": text}
