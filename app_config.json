@@ -1,11 +1,11 @@
 {
   "active_project": "Carol",
   "projects_dir": "C:\\Users\\santa\\OneDrive\\Documents\\CellposeProjects",
-  "active_model": "carol3",
+  "active_model": "carolfinal_v1",
   "active_image_set": "__pending__",
   "language": "pt",
   "padding_pixels": 32,
-  "diameter": 70.0,
+  "diameter": 100.0,
   "cellprob_threshold": 0.0,
   "flow_threshold": 0.4,
   "calibration": {

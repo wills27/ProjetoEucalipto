@@ -115,6 +115,10 @@ class WindowChromeMixin:
         super().closeEvent(event)
 
     def set_page(self, index):
+        host = self.results_sidebar_host if index == 0 else self.body_sidebar_host
+        if self.sidebar.parentWidget() is not host:
+            host.layout().addWidget(self.sidebar)
+        self.body_sidebar_host.setVisible(index != 0)
         self.stack.setCurrentIndex(index)
         for button_index, button in enumerate(self.nav_buttons):
             button.setProperty("active", button_index == index)

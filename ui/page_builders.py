@@ -36,14 +36,22 @@ class UiBuilderMixin:
         body.setSpacing(12)
         root_layout.addLayout(body, 1)
 
-        sidebar = QFrame()
+        # A sidebar troca de lugar conforme a pagina (ver set_page): na
+        # pagina de resultados ela fica so acima do card de Predicao (que se
+        # estende por baixo dela); nas demais ocupa a altura inteira aqui.
+        self.sidebar = QFrame()
+        sidebar = self.sidebar
         sidebar.setObjectName("sidebar")
         sidebar.setFixedWidth(190)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
         sidebar_layout.setSpacing(6)
         components.apply_elevation(sidebar)
-        body.addWidget(sidebar, 0)
+        self.body_sidebar_host = QWidget()
+        body_sidebar_layout = QVBoxLayout(self.body_sidebar_host)
+        body_sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        body_sidebar_layout.addWidget(sidebar)
+        body.addWidget(self.body_sidebar_host, 0)
 
         self.sidebar_calibration_button = self.add_button(
             sidebar_layout, tr("sidebar.calibration"), self.open_calibration_dialog

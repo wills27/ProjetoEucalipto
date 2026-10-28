@@ -5,7 +5,7 @@ import tifffile as tiff
 from PIL import Image
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QTableWidgetItem
+from PyQt6.QtWidgets import QTableWidgetItem, QWIDGETSIZE_MAX
 
 from services.csv_files import load_semicolon_csv as read_semicolon_csv
 from services.i18n import tr
@@ -27,6 +27,16 @@ from services.overlay_rendering import (
     render_measurement_overlay as render_measurement_mask_overlay,
 )
 from services.paths import cell_counts_csv_path, cell_measurements_csv_path, metrics_csv_path, predictions_dir
+from ui.widgets import DiameterPreviewWidget
+
+# Visualizador: espaco entre a imagem e o circulo de diametro abaixo dela,
+# folga pra o ajuste nao ligar barras de rolagem por arredondamento, e
+# limites do zoom (relativo ao ajuste / escala e tamanho maximos exibidos).
+VIEWER_CIRCLE_GAP = 8
+VIEWER_FIT_MARGIN = 4
+VIEWER_MIN_ZOOM = 0.25
+VIEWER_MAX_SCALE = 8.0
+VIEWER_MAX_DIMENSION = 13000
 
 
 class AnalysisPresenterMixin:
@@ -123,6 +133,9 @@ class AnalysisPresenterMixin:
     def show_analysis_image(self, image_stem):
         if not image_stem:
             return
+        if image_stem != self.viewer_zoom_stem:
+            self.viewer_zoom = 1.0
+            self.viewer_zoom_stem = image_stem
         self.update_metric_panel(image_stem)
         image = self.analysis_preview_image(image_stem, self.current_view_mode)
         if image is not None:
@@ -188,49 +201,134 @@ class AnalysisPresenterMixin:
         return None
 
     def set_analysis_preview_pixmap(self, stem, mode, image):
-        pixmap, scale, offset_x, offset_y = self.analysis_pixmap_data(stem, mode, image)
+        pixmap, scale = self.analysis_pixmap_data(stem, mode, image)
+        self.set_viewer_pixmap(pixmap, scale)
+
+    def set_viewer_pixmap(self, pixmap, scale):
         self.preview_label._display_scale = scale
-        self.preview_label._display_offset_x = offset_x
-        self.preview_label._display_offset_y = offset_y
+        self.preview_label._display_offset_x = 0
+        self.preview_label._display_offset_y = 0
         self.preview_label.setPixmap(pixmap)
+
+    def on_viewer_pixmap_changed(self):
+        """Com imagem, o label assume o tamanho exato do pixmap (a area com
+        rolagem cuida do excesso) e o circulo acompanha a escala; sem imagem,
+        o label ocupa o Visualizador pra mostrar a mensagem e o circulo some."""
+        pixmap = self.preview_label.pixmap()
+        if pixmap is None or pixmap.isNull():
+            self.preview_label.setMinimumSize(0, 0)
+            self.preview_label.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)
+            self.diameter_preview.hide()
+            return
+        self.preview_label.setFixedSize(pixmap.size())
+        self.diameter_preview.set_scale(getattr(self.preview_label, "_display_scale", 1.0))
+        self.diameter_preview.show()
 
     def update_diameter_preview(self):
         """Atualiza o circulo de referencia do 'Diametro estimado' (ver
-        AnnotationPreviewLabel._paint_diameter_preview) sempre que o campo
-        muda, pra dar uma nocao visual imediata do tamanho configurado em
-        relacao a imagem mostrada no Visualizador."""
-        if not hasattr(self, "preview_label"):
+        DiameterPreviewWidget) sempre que o campo muda. O ajuste da imagem
+        considera o circulo, entao a imagem atual e redesenhada tambem."""
+        if not hasattr(self, "diameter_preview"):
             return
         try:
             diameter = float(self.pred_diameter.text().strip().replace(",", "."))
         except (ValueError, AttributeError):
             diameter = 0.0
-        self.preview_label.diameter_preview_px = diameter if diameter > 0 else None
-        self.preview_label.update()
+        self.diameter_preview.set_diameter(diameter)
+        stem = self.current_result_image_stem()
+        if stem:
+            self.show_analysis_image(stem)
+
+    def viewer_display_scale(self, width, height):
+        """Escala da imagem no Visualizador: ajuste (imagem + circulo de
+        diametro abaixo dela cabem no viewport) vezes o zoom atual."""
+        viewport = self.preview_scroll.viewport().size()
+        available_width = max(1, viewport.width() - VIEWER_FIT_MARGIN)
+        available_height = max(1, viewport.height() - VIEWER_FIT_MARGIN)
+        diameter = self.diameter_preview.diameter_px or 0
+        if diameter:
+            circle_extra = VIEWER_CIRCLE_GAP + DiameterPreviewWidget.OUTLINE_WIDTH * 2
+            fit_height = max(1, available_height - circle_extra) / (height + diameter)
+        else:
+            fit_height = available_height / height
+        fit_scale = min(available_width / width, fit_height)
+        return fit_scale * self.viewer_zoom
+
+    def zoom_viewer(self, delta, viewport_x, viewport_y):
+        """Zoom pela roda do mouse, mantendo sob o cursor o mesmo ponto da
+        imagem (quando a imagem passa do tamanho do viewport)."""
+        stem = self.current_result_image_stem()
+        pixmap = self.preview_label.pixmap()
+        if not stem or pixmap is None or pixmap.isNull() or not delta:
+            return
+        old_scale = getattr(self.preview_label, "_display_scale", 1.0)
+        anchor = self._viewer_zoom_anchor
+        if anchor is not None and anchor[2:] == (viewport_x, viewport_y):
+            # Rajada de wheel antes do layout aplicar o passo anterior: as
+            # barras de rolagem ainda estao defasadas, reusa o mesmo ponto.
+            image_x, image_y = anchor[:2]
+        else:
+            origin_x, origin_y = self._viewer_label_origin()
+            image_x = (viewport_x + self.preview_scroll.horizontalScrollBar().value() - origin_x) / old_scale
+            image_y = (viewport_y + self.preview_scroll.verticalScrollBar().value() - origin_y) / old_scale
+        native_width = pixmap.width() / old_scale
+        native_height = pixmap.height() / old_scale
+        fit_scale = old_scale / self.viewer_zoom
+        max_scale = min(VIEWER_MAX_SCALE, VIEWER_MAX_DIMENSION / max(native_width, native_height))
+        factor = 1.15 if delta > 0 else 1 / 1.15
+        self.viewer_zoom = max(VIEWER_MIN_ZOOM, min(max_scale / fit_scale, self.viewer_zoom * factor))
+        self.show_analysis_image(stem)
+        if self._viewer_zoom_anchor is None:
+            QTimer.singleShot(0, self._apply_viewer_zoom_anchor)
+        self._viewer_zoom_anchor = (image_x, image_y, viewport_x, viewport_y)
+
+    def _viewer_label_origin(self):
+        """Posicao do label da imagem dentro do conteudo rolavel, calculada a
+        partir dos tamanhos (o layout pode ainda nao ter sido aplicado). A
+        coluna imagem + circulo fica centralizada quando cabe no viewport."""
+        viewport = self.preview_scroll.viewport().size()
+        label = self.preview_label.size()
+        column_width = max(label.width(), self.diameter_preview.width())
+        column_height = label.height()
+        if self.diameter_preview.diameter_px:
+            column_height += VIEWER_CIRCLE_GAP + self.diameter_preview.height()
+        return max(0, (viewport.width() - column_width) // 2), max(0, (viewport.height() - column_height) // 2)
+
+    def _apply_viewer_zoom_anchor(self):
+        anchor, self._viewer_zoom_anchor = self._viewer_zoom_anchor, None
+        if anchor is None:
+            return
+        image_x, image_y, viewport_x, viewport_y = anchor
+        scale = getattr(self.preview_label, "_display_scale", 1.0)
+        origin_x, origin_y = self._viewer_label_origin()
+        self.preview_scroll.horizontalScrollBar().setValue(int(origin_x + image_x * scale - viewport_x))
+        self.preview_scroll.verticalScrollBar().setValue(int(origin_y + image_y * scale - viewport_y))
+
+    def viewer_scaled_pixmap(self, source_pixmap, width, height):
+        scale = self.viewer_display_scale(width, height)
+        pixmap = source_pixmap.scaled(
+            max(1, round(width * scale)),
+            max(1, round(height * scale)),
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        return pixmap, pixmap.width() / width
 
     def analysis_pixmap_data(self, stem, mode, image):
         render_key = self.analysis_render_cache_key(stem, mode)
-        pixmap_key = (
-            render_key,
-            self.preview_label.width(),
-            self.preview_label.height(),
-            image.size,
-        )
-        if pixmap_key not in self.analysis_pixmap_cache:
-            image = image.convert("RGB")
-            width, height = image.size
-            qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
-            source_pixmap = QPixmap.fromImage(qimage)
-            pixmap = source_pixmap.scaled(
-                self.preview_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            scale = pixmap.width() / width
-            offset_x = (self.preview_label.width() - pixmap.width()) / 2
-            offset_y = (self.preview_label.height() - pixmap.height()) / 2
-            self.analysis_pixmap_cache[pixmap_key] = (pixmap, scale, offset_x, offset_y)
-        return self.analysis_pixmap_cache[pixmap_key]
+        width, height = image.size
+        scale = self.viewer_display_scale(width, height)
+        pixmap_key = (render_key, round(width * scale), round(height * scale), image.size)
+        if pixmap_key in self.analysis_pixmap_cache:
+            return self.analysis_pixmap_cache[pixmap_key]
+        image = image.convert("RGB")
+        qimage = QImage(image.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888).copy()
+        result = self.viewer_scaled_pixmap(QPixmap.fromImage(qimage), width, height)
+        # So o tamanho de ajuste vai pro cache: cada passo de zoom geraria
+        # uma entrada nova.
+        if self.viewer_zoom == 1.0:
+            self.analysis_pixmap_cache[pixmap_key] = result
+        return result
 
     def analysis_image_path(self, stem, mode):
         if mode == "original":
@@ -328,8 +426,13 @@ class AnalysisPresenterMixin:
         return render_colored_mask_overlay(image, mask, selected_label=selected_label, alpha=alpha)
 
     def show_image_file(self, path):
-        image = self.load_image_as_rgb(path)
-        self.set_label_pixmap(self.preview_label, image)
+        from ui.widgets import qimage_from_pil
+
+        qimage = qimage_from_pil(self.load_image_as_rgb(path))
+        if qimage is None:
+            return
+        pixmap, scale = self.viewer_scaled_pixmap(QPixmap.fromImage(qimage), qimage.width(), qimage.height())
+        self.set_viewer_pixmap(pixmap, scale)
 
     def set_label_pixmap(self, label, image):
         from ui.widgets import qimage_from_pil

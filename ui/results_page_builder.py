@@ -15,22 +15,31 @@ from PyQt6.QtWidgets import (
 
 from services.i18n import tr
 from services.paths import active_image_set_dir, relative_to_project
-from ui.widgets import AnnotationPreviewLabel
+from ui.analysis_presenter import VIEWER_CIRCLE_GAP
+from ui.widgets import AnnotationPreviewLabel, DiameterPreviewWidget, ZoomScrollArea
 from ui.tables.results_images_table import ResultsImagesTable
 
 
 class ResultsPageBuilderMixin:
     def build_results_page(self, page):
-        layout = QHBoxLayout(page)
+        # Grid: sidebar (col 0) e Imagens (col 1) em cima, card de Predicao
+        # embaixo ocupando as duas colunas, Visualizador (col 2) na altura
+        # inteira. A sidebar e movida pra results_sidebar_host em set_page.
+        layout = QGridLayout(page)
         layout.setSpacing(12)
 
-        left_column = QVBoxLayout()
-        left_column.setSpacing(12)
+        self.results_sidebar_host = QWidget()
+        results_sidebar_layout = QVBoxLayout(self.results_sidebar_host)
+        results_sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
         self._results_prediction_panel = self.panel(tr("results.prediction"))
         model_box = self._results_prediction_panel
-        model_layout = QGridLayout(model_box)
-        model_layout.setContentsMargins(10, 8, 10, 10)
+        card_layout = QHBoxLayout(model_box)
+        card_layout.setContentsMargins(10, 8, 10, 10)
+        card_layout.setSpacing(10)
+        card_content = QWidget()
+        model_layout = QGridLayout(card_content)
+        model_layout.setContentsMargins(0, 0, 0, 0)
         model_layout.setHorizontalSpacing(10)
         model_layout.setVerticalSpacing(6)
         self.predict_model_label = QLabel()
@@ -81,7 +90,9 @@ class ResultsPageBuilderMixin:
         model_layout.addWidget(self.results_parameters_label, 0, 0)
         model_layout.addWidget(params_row, 0, 1)
         model_layout.addWidget(self.results_calibration_label, 1, 1)
-        predict_actions = QHBoxLayout()
+        # Botoes ficam numa segunda coluna do card, empilhados.
+        predict_actions = QVBoxLayout()
+        predict_actions.setSpacing(6)
         self.generate_results_button = self.add_button(
             predict_actions,
             tr("results.generate"),
@@ -95,7 +106,6 @@ class ResultsPageBuilderMixin:
         )
         self.export_results_button.hide()
         predict_actions.addStretch()
-        model_layout.addLayout(predict_actions, 2, 1)
         self.result_progress_label = QLabel(tr("results.waiting"))
         self.result_progress_label.setObjectName("hint")
         self.result_progress_label.setWordWrap(True)
@@ -104,8 +114,11 @@ class ResultsPageBuilderMixin:
         self.result_progress_bar.setValue(0)
         self.result_progress_bar.setFormat("%p%")
         self.result_progress_bar.setTextVisible(True)
-        model_layout.addWidget(self.result_progress_label, 3, 1)
-        model_layout.addWidget(self.result_progress_bar, 4, 1)
+        model_layout.addWidget(self.result_progress_label, 2, 1)
+        model_layout.addWidget(self.result_progress_bar, 3, 1)
+        model_layout.setRowStretch(4, 1)
+        card_layout.addWidget(card_content, 1)
+        card_layout.addLayout(predict_actions, 1)
         self._results_images_panel = self.panel(tr("results.images"))
         left = self._results_images_panel
         left_layout = QVBoxLayout(left)
@@ -142,9 +155,12 @@ class ResultsPageBuilderMixin:
         self.results_list_status.setObjectName("hint")
         self.results_list_status.setWordWrap(True)
         left_layout.addWidget(self.results_list_status)
-        left_column.addWidget(left, 1)
-        left_column.addWidget(model_box)
-        layout.addLayout(left_column, 0)
+        layout.addWidget(self.results_sidebar_host, 0, 0)
+        layout.addWidget(left, 0, 1)
+        layout.addWidget(model_box, 1, 0, 1, 2)
+        layout.setRowStretch(0, 1)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
 
         self._results_viewer_panel = self.panel(tr("results.viewer"))
         center = self._results_viewer_panel
@@ -177,11 +193,31 @@ class ResultsPageBuilderMixin:
             double_click_callback=self.open_selected_result_mask_editor,
             draw_button=None,
         )
-        self.preview_label.setObjectName("preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(320, 240)
         self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        center_layout.addWidget(self.preview_label, 1)
+        # Imagem + circulo de referencia do diametro logo abaixo, alinhado a
+        # esquerda da imagem, dentro de uma area com zoom pela roda do mouse
+        # (ver zoom_viewer em ui/analysis_presenter.py).
+        self.diameter_preview = DiameterPreviewWidget()
+        viewer_column = QWidget()
+        viewer_column_layout = QVBoxLayout(viewer_column)
+        viewer_column_layout.setContentsMargins(0, 0, 0, 0)
+        viewer_column_layout.setSpacing(VIEWER_CIRCLE_GAP)
+        viewer_column_layout.addWidget(self.preview_label, 1)
+        viewer_column_layout.addWidget(self.diameter_preview, 0, Qt.AlignmentFlag.AlignLeft)
+        viewer_canvas = QWidget()
+        viewer_canvas.setObjectName("viewerCanvas")
+        canvas_layout = QHBoxLayout(viewer_canvas)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.addWidget(viewer_column, 0, Qt.AlignmentFlag.AlignCenter)
+        self.preview_scroll = ZoomScrollArea(self.zoom_viewer)
+        self.preview_scroll.setObjectName("viewerScroll")
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_scroll.setMinimumSize(320, 240)
+        self.preview_scroll.setWidget(viewer_canvas)
+        center_layout.addWidget(self.preview_scroll, 1)
+        self.preview_label.pixmap_changed_callback = self.on_viewer_pixmap_changed
+        self.on_viewer_pixmap_changed()
         self.update_diameter_preview()
         edit_mask_layout = QHBoxLayout()
         self.export_image_button = self.add_button(
@@ -192,7 +228,7 @@ class ResultsPageBuilderMixin:
         )
         edit_mask_layout.addStretch()
         center_layout.addLayout(edit_mask_layout)
-        layout.addWidget(center, 1)
+        layout.addWidget(center, 0, 2, 2, 1)
 
     def retranslate_results_page(self):
         self._results_prediction_panel.setTitle(tr("results.prediction"))

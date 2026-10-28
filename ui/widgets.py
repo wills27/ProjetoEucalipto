@@ -1,7 +1,8 @@
-from PyQt6.QtCore import Qt, QPointF
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtWidgets import QLabel, QScrollArea, QWidget
 from PyQt6.QtGui import QImage, QPainter, QPen, QColor
 import io
+import math
 
 
 def qimage_from_pil(image):
@@ -80,18 +81,16 @@ class AnnotationPreviewLabel(QLabel):
         self.pan_start_h = 0
         self.pan_start_v = 0
         self.overlay_points = None
-        # Diametro de referencia (em px DA IMAGEM, nao do widget) pra
-        # desenhar um circulo de comparacao de tamanho sobre o preview - ver
-        # paintEvent/_paint_diameter_preview. None/0 desliga o desenho.
-        self.diameter_preview_px = None
+        # Chamado sempre que o pixmap muda (escala de exibicao pode ter
+        # mudado) - usado pelo DiameterPreviewWidget do card de predicao.
+        self.pixmap_changed_callback = None
         self.setMouseTracking(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
     def paintEvent(self, event):
         super().paintEvent(event)
         points = self.overlay_points
-        diameter_px = self.diameter_preview_px
-        if not points and not diameter_px:
+        if not points:
             return
         scale = getattr(self, "_display_scale", 1.0)
         offset_x = getattr(self, "_display_offset_x", 0)
@@ -100,46 +99,30 @@ class AnnotationPreviewLabel(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        if points:
-            widget_points = [QPointF(p[0] * scale + offset_x, p[1] * scale + offset_y) for p in points]
+        widget_points = [QPointF(p[0] * scale + offset_x, p[1] * scale + offset_y) for p in points]
 
-            if len(widget_points) == 2:
-                line_pen = QPen(QColor(255, 214, 74))
-                line_pen.setWidthF(1.4)
-                line_pen.setCosmetic(True)
-                painter.setPen(line_pen)
-                painter.drawLine(widget_points[0], widget_points[1])
+        if len(widget_points) == 2:
+            line_pen = QPen(QColor(255, 214, 74))
+            line_pen.setWidthF(1.4)
+            line_pen.setCosmetic(True)
+            painter.setPen(line_pen)
+            painter.drawLine(widget_points[0], widget_points[1])
 
-            outline_pen = QPen(QColor(0, 46, 40))
-            outline_pen.setWidthF(1.3)
-            outline_pen.setCosmetic(True)
-            radius = 3.0
-            for widget_point in widget_points:
-                painter.setPen(outline_pen)
-                painter.setBrush(QColor(255, 214, 74))
-                painter.drawEllipse(widget_point, radius, radius)
-
-        if diameter_px:
-            self._paint_diameter_preview(painter, diameter_px, scale)
+        outline_pen = QPen(QColor(0, 46, 40))
+        outline_pen.setWidthF(1.3)
+        outline_pen.setCosmetic(True)
+        radius = 3.0
+        for widget_point in widget_points:
+            painter.setPen(outline_pen)
+            painter.setBrush(QColor(255, 214, 74))
+            painter.drawEllipse(widget_point, radius, radius)
 
         painter.end()
 
-    def _paint_diameter_preview(self, painter, diameter_px, scale):
-        """Circulo tracejado de referencia no mesmo zoom/escala da imagem
-        exibida, pra comparar visualmente o diametro estimado configurado
-        com o tamanho real dos vasos na foto. Ancorado num canto fixo do
-        widget (nao em coordenada de imagem) pra continuar visivel mesmo com
-        pan/scroll."""
-        radius = max(2.0, (diameter_px / 2.0) * scale)
-        margin = 24.0
-        center = QPointF(margin + radius, margin + radius)
-        pen = QPen(QColor(90, 170, 255))
-        pen.setWidthF(1.6)
-        pen.setCosmetic(True)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(center, radius, radius)
+    def setPixmap(self, pixmap):
+        super().setPixmap(pixmap)
+        if self.pixmap_changed_callback:
+            self.pixmap_changed_callback()
 
     def mousePressEvent(self, event):
         if (
@@ -215,3 +198,61 @@ class AnnotationPreviewLabel(QLabel):
             and self.pan_scroll_area is not None
             and button == self.pan_button
         )
+
+
+class DiameterPreviewWidget(QWidget):
+    """Circulo de referencia do 'Diametro estimado', desenhado abaixo da
+    imagem do Visualizador na mesma escala dela (acompanha o zoom), pra
+    comparar visualmente com o tamanho real dos vasos."""
+
+    FILL_COLOR = QColor(90, 170, 255)
+    OUTLINE_WIDTH = 2.0
+
+    def __init__(self):
+        super().__init__()
+        self.diameter_px = None
+        self.scale = 1.0
+        self._apply_size()
+
+    def set_diameter(self, diameter_px):
+        self.diameter_px = diameter_px if diameter_px and diameter_px > 0 else None
+        self._apply_size()
+
+    def set_scale(self, scale):
+        self.scale = scale
+        self._apply_size()
+
+    def _apply_size(self):
+        if not self.diameter_px:
+            self.setFixedSize(0, 0)
+            return
+        size = math.ceil(self.diameter_px * self.scale + self.OUTLINE_WIDTH * 2)
+        self.setFixedSize(size, size)
+        self.update()
+
+    def paintEvent(self, event):
+        if not self.diameter_px:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(self.FILL_COLOR.darker(150))
+        pen.setWidthF(self.OUTLINE_WIDTH)
+        painter.setPen(pen)
+        painter.setBrush(self.FILL_COLOR)
+        inset = self.OUTLINE_WIDTH / 2
+        painter.drawEllipse(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
+        painter.end()
+
+
+class ZoomScrollArea(QScrollArea):
+    """QScrollArea que repassa a roda do mouse (em coordenadas do viewport)
+    pra um callback de zoom em vez de rolar."""
+
+    def __init__(self, wheel_callback):
+        super().__init__()
+        self.wheel_callback = wheel_callback
+
+    def wheelEvent(self, event):
+        position = event.position()
+        self.wheel_callback(event.angleDelta().y(), position.x(), position.y())
+        event.accept()

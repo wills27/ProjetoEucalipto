@@ -274,10 +274,13 @@ _APP_STYLE_TEMPLATE = f"""
                 line-height: 150%;
                 background: transparent;
             }}
-            QLabel#preview {{
+            QLabel#preview, QScrollArea#viewerScroll {{
                 background: {c.SURFACE_MUTED};
                 border: 1px solid {c.BORDER};
                 border-radius: 14px;
+            }}
+            QWidget#viewerCanvas {{
+                background: transparent;
             }}
             QLineEdit, QSpinBox, QComboBox, QTextEdit, QListWidget, QTableWidget {{
                 background: {c.SURFACE};

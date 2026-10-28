@@ -81,6 +81,11 @@ class CellposeWindow(
         self.analysis_cache = {}
         self.analysis_render_cache = {}
         self.analysis_pixmap_cache = {}
+        # Zoom do Visualizador relativo ao ajuste (1.0 = imagem + circulo
+        # cabem na tela); volta a 1.0 quando a imagem mostrada muda.
+        self.viewer_zoom = 1.0
+        self.viewer_zoom_stem = None
+        self._viewer_zoom_anchor = None
         self.viewer_render_cache = {}
         self.result_entries_cache = None
         self.result_status_index = {}
